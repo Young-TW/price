@@ -1,0 +1,5 @@
+.ropeproject/
+
+*.DS_Store
+
+*.json
