@@ -6,7 +6,7 @@ import datetime
 import json
 
 # 數據資料處理
-data = json.load(open('data.json'))
+data = json.load(open('json/data.json'))
 data = data['Time Series (5min)']
 
 # 將資料轉換為繪圖格式
@@ -34,4 +34,4 @@ ax.set_ylabel('Price')
 candlestick_ohlc(ax, data_list, width=0.001, colorup='g', colordown='r')
 plt.grid()
 
-plt.savefig('k_line.png')
+plt.savefig('img/k_line.png')
