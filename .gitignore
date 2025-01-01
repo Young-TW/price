@@ -3,3 +3,8 @@
 *.DS_Store
 
 *.json
+*.png
+*.jpg
+
+env/
+path/to/venv/

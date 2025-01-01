@@ -33,4 +33,5 @@ ax.set_ylabel('Price')
 
 candlestick_ohlc(ax, data_list, width=0.001, colorup='g', colordown='r')
 plt.grid()
-plt.show()
+
+plt.savefig('k_line.png')
