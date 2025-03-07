@@ -8,3 +8,7 @@
 
 env/
 path/to/venv/
+
+.venv/
+
+json/

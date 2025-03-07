@@ -35,3 +35,9 @@ candlestick_ohlc(ax, data_list, width=0.001, colorup='g', colordown='r')
 plt.grid()
 
 plt.savefig('img/k_line.png')
+# plt.show()
+
+output_file = "kline_chart.png"  # 匯出的檔案名稱
+fig.savefig(output_file)
+
+print(f"K 線圖已匯出至 {output_file}")

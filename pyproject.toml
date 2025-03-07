@@ -1,0 +1,7 @@
+[project]
+name = "price"
+version = "0.1.0"
+description = "request price from alpha vantage"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = []

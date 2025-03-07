@@ -7,6 +7,10 @@ with open('apikey.json', 'r') as f:
 symbol = "AMD"
 interval = "5min"
 function = "GLOBAL_QUOTE"
+# replace the "demo" apikey below with your own key from https://www.alphavantage.co/support/#api-key
+url = 'https://www.alphavantage.co/query?function=TIME_SERIES_INTRADAY&symbol=VOO&interval=5min&apikey=' + apikey
+r = requests.get(url)
+data = r.json()
 
 url = f'https://www.alphavantage.co/query?function={function}&symbol={symbol}&interval={interval}&apikey={apikey}'
 
