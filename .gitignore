@@ -12,3 +12,5 @@ path/to/venv/
 .venv/
 
 json/
+
+config/
