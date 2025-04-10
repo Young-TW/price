@@ -1,4 +1,5 @@
 use colored::*;
+use futures::stream::{FuturesUnordered, StreamExt};
 
 mod config;
 mod get;
@@ -13,20 +14,34 @@ async fn main() {
         .expect("無法讀取資產組合檔案");
 
     let mut total_value = 0.0;
+    let mut tasks = FuturesUnordered::new();
 
     for category in ["crypto", "us-stock", "us-etf", "tw-stock", "tw-etf"] {
         if let Some(items) = portfolio.get(category) {
             for (symbol, amount) in items {
-                match get_price(symbol, category).await {
-                    Ok(price) => {
-                        println!("{}: {} 股 x ${:.2}", symbol, amount, price);
-                        total_value += amount * price;
+                let symbol = symbol.clone();
+                let category = category.to_string();
+                let amount = *amount;
+
+                tasks.push(async move {
+                    match get_price(&symbol, &category).await {
+                        Ok(price) => {
+                            println!("{}: {} 股 x ${:.2}", symbol, amount, price);
+                            Some(amount * price)
+                        }
+                        Err(e) => {
+                            eprintln!("{}: 查詢失敗 - {}", symbol, e.red());
+                            None
+                        }
                     }
-                    Err(e) => {
-                        eprintln!("{}: 查詢失敗 - {}", symbol, e.red());
-                    }
-                }
+                });
             }
+        }
+    }
+
+    while let Some(result) = tasks.next().await {
+        if let Some(value) = result {
+            total_value += value;
         }
     }
 

@@ -24,6 +24,11 @@ pub async fn get_price(symbol: &str, category: &str) -> Result<f64, String> {
             if let Ok(price) = get_price_from_pyth(symbol).await {
                 return Ok(price);
             }
+
+            if let Ok(price) = get_price_from_redstone(symbol).await {
+                return Ok(price);
+            }
+
             get_price_from_yahoo(symbol).await
         }
 
