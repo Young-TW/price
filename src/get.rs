@@ -17,7 +17,7 @@ pub async fn get_price(symbol: &str, category: &str) -> Result<f64, String> {
             if let Ok(price) = get_price_from_binance(symbol).await {
                 return Ok(price);
             }
-            get_price_from_alpha_vantage(symbol, "YOUR_API_KEY").await
+            get_price_from_alpha_vantage(symbol).await
         }
 
         "us-stock" | "us-etf" => {

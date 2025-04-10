@@ -1,5 +1,6 @@
-use reqwest::Error;
 use serde::Deserialize;
+
+use crate::config::read_api_keys;
 
 #[derive(Deserialize, Debug)]
 struct GlobalQuote {
@@ -14,7 +15,12 @@ struct AlphaVantageResponse {
 }
 
 /// Alpha Vantage 免費帳號：每分鐘 5 次，每天 500 次
-pub async fn get_price_from_alpha_vantage(symbol: &str, api_key: &str) -> Result<f64, String> {
+pub async fn get_price_from_alpha_vantage(symbol: &str) -> Result<f64, String> {
+    let api_keys = read_api_keys("config/api_key.toml")
+        .map_err(|e| format!("[AlphaVantage] 讀取 API 金鑰失敗：{}", e))?;
+    let api_key = api_keys
+        .get("alpha_vantage_api_key")
+        .ok_or_else(|| "[AlphaVantage] 找不到 Alpha Vantage API 金鑰".to_string())?;
     let url = format!(
         "https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol={}&apikey={}",
         symbol, api_key
