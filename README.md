@@ -32,11 +32,23 @@ sol = 0.5
 [forex]
 usd = 100
 twd = 10000
-
-[display]
-target1 = "twd"
-target2 = "usd"
-target3 = "eth"
 ```
 
 This toml file is used to store your portfolio. You can add as many assets as you want. The program will automatically fetch the price of each asset and calculate the total value of your portfolio in the target currencies.
+
+## Development
+
+### Progress
+
+- [x] Fetch stock prices
+- [x] Fetch ETF prices
+- [x] Fetch crypto prices
+- [x] Fetch forex prices
+- [x] Calculate total portfolio value in any currency
+
+- [x] alpha_vantage API
+- [x] binance API
+- [x] exchange_rate API
+- [ ] pyth(pyth network) API
+- [x] redstone API
+- [x] yahoo finance API
