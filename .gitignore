@@ -14,3 +14,5 @@ path/to/venv/
 json/
 
 config/
+
+*__pycache__/

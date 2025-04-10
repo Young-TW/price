@@ -5,6 +5,17 @@ def api_key():
     with open('apikey.json', 'r') as f:
         return json.load(f)['apikey']
 
+def get_current_price(symbol):
+    apikey = api_key()
+    url = f"https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol={symbol}&apikey={apikey}"
+    data = requests.get(url).json()
+    try:
+        price = data['Global Quote']['05. price']
+        return float(price)
+    except (KeyError, ValueError):
+        return None  # or raise Exception("無法取得價格")
+
+
 if __name__ == "__main__":
     apikey = api_key()
 
