@@ -1,10 +1,6 @@
 import requests
 import json
 
-def api_key(apikey_file_path):
-    with open(apikey_file_path, 'r') as f:
-        return json.load(f)['apikey']
-
 def get_current_price(apikey, symbol):
     url = f"https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol={symbol}&apikey={apikey}"
     data = requests.get(url).json()
