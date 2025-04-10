@@ -16,3 +16,8 @@ json/
 config/
 
 *__pycache__/
+
+
+# Added by cargo
+
+/target
