@@ -1,6 +1,7 @@
 import requests
+from config import read_api_keys
 
-def get_price_from_alpha_vantage(api_key, symbol):
+def get_price_from_alpha_vantage(symbol):
     url = f"https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol={symbol}&apikey={api_key}"
     data = requests.get(url).json()
     try:
