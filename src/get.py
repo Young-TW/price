@@ -1,16 +1,17 @@
-import requests
-import json
+from api.pyth import get_price_from_pyth
+from api.alpha_vantage import get_price_from_alpha_vantage
 
-def get_stock_current_price(apikey, symbol):
-    url = f"https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol={symbol}&apikey={apikey}"
-    data = requests.get(url).json()
-    try:
-        price = data['Global Quote']['05. price']
-        return float(price)
-    except (KeyError, ValueError):
-        return None  # or raise Exception("無法取得價格")
+def get_price(symbol: str, category: str, api_key: str) -> float:
+    # 先判斷是什麼類型（crypto / stock / etf / 台股）
+    # 然後依照優先順序 fallback
+    if category == "crypto" or category == "us-stock" or category == "us-etf":
+        pyth_price = get_price_from_pyth(symbol)
+        if pyth_price is not None:
+            return pyth_price
 
-def get_crypto_current_price():
-    # use pyth network
-    # ETH/USD 0xff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace
-    # url = f"
+        return  get_price_from_alpha_vantage(api_key, symbol)
+    elif category == "tw-stock":
+        return 0.0 # not done yet
+        # return get_price_from_yahoo(symbol)
+
+    raise ValueError(f"未知的資產類別：{symbol}")
