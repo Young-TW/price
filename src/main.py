@@ -9,13 +9,13 @@ if __name__ == "__main__":
     total_value = 0.0
 
     # 處理所有資產
-    for category in ["us-stock", "us-etf", "crypto"]:
+    for category in ["crypto", "us-stock", "us-etf", "tw-stock"]:
         for symbol, amount in portfolio.get(category, {}).items():
             price = get_price(symbol , category, api_key)
             print(f"{symbol}: {amount} 股 x ${price}")
             total_value += amount * price
 
     # 處理現金（只算 USD，TWD 可換匯處理）
-    total_value += portfolio["cash"].get("usd", 0)
+    total_value += portfolio["forex"].get("usd", 0)
 
     print(f"\n[bold green]總資產 (USD)：${total_value:.2f}[/bold green]")
