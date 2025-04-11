@@ -38,7 +38,7 @@ usd = 100
 twd = 10000
 ```
 
-`api_key.toml`
+`config/api_key.toml`
 
 This file is used to store your API keys. You can add as many API keys as you want. The program will automatically fetch the price of each asset and calculate the total value of your portfolio in the target currencies.
 
