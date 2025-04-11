@@ -27,7 +27,10 @@ pub async fn stream(cycle: u64) {
                     tasks.push(async move {
                         match get_price(&symbol, &category).await {
                             Ok(price) => Some((symbol, amount, price, category)),
-                            Err(_) => None,
+                            Err(_) => {
+                                print!("無法獲取 {} 的價格", symbol);
+                                None
+                            }
                         }
                     });
                 }
