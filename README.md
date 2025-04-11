@@ -24,10 +24,10 @@ amd = 10
 QQQ = 20
 
 [tw-stock]
-"2330.TW" = 10
+2330.TW = 10
 
 [tw-etf]
-"0050.TW" = 20
+0050 = 20
 
 [crypto]
 eth = 0.5
@@ -61,7 +61,7 @@ target = "TWD"
 - [x] Fetch ETF prices
 - [x] Fetch crypto prices
 - [x] Fetch forex prices
-- [x] Calculate total portfolio value in any currency
+- [x] Calculate total portfolio value in USD
 - [ ] target forex calculation
 
 - [x] alpha_vantage API
