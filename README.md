@@ -47,6 +47,12 @@ This file is used to store your API keys. You can add as many API keys as you wa
 "exchangerate_api_key" = "xxxxxxxxxxxxxxxxxxxxxxxx"
 ```
 
+`config/target_forex.toml`
+
+```toml
+target = "TWD"
+```
+
 ## Development
 
 ### Progress
@@ -56,6 +62,7 @@ This file is used to store your API keys. You can add as many API keys as you wa
 - [x] Fetch crypto prices
 - [x] Fetch forex prices
 - [x] Calculate total portfolio value in any currency
+- [ ] target forex calculation
 
 - [x] alpha_vantage API
 - [x] binance API
@@ -63,3 +70,4 @@ This file is used to store your API keys. You can add as many API keys as you wa
 - [ ] pyth(pyth network) API
 - [x] redstone API
 - [x] yahoo finance API
+- [ ] TWSE API
