@@ -12,6 +12,10 @@ In the config/ dir. You can add a `portfolio.toml` to create your assets list.
 
 ### Example
 
+`config/portfolio.toml`
+
+This toml file is used to store your portfolio. You can add as many assets as you want. The program will automatically fetch the price of each asset and calculate the total value of your portfolio in the target currencies.
+
 ```toml
 [us-stock]
 amd = 10
@@ -34,7 +38,14 @@ usd = 100
 twd = 10000
 ```
 
-This toml file is used to store your portfolio. You can add as many assets as you want. The program will automatically fetch the price of each asset and calculate the total value of your portfolio in the target currencies.
+`api_key.toml`
+
+This file is used to store your API keys. You can add as many API keys as you want. The program will automatically fetch the price of each asset and calculate the total value of your portfolio in the target currencies.
+
+```toml
+"alpha_vantage_api_key" = "XXXXXXXXXXXXXXXX"
+"exchangerate_api_key" = "xxxxxxxxxxxxxxxxxxxxxxxx"
+```
 
 ## Development
 
