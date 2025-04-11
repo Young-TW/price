@@ -17,7 +17,15 @@ pub async fn get_price(symbol: &str, category: &str) -> Result<f64, String> {
             if let Ok(price) = get_price_from_binance(symbol).await {
                 return Ok(price);
             }
-            get_price_from_alpha_vantage(symbol).await
+            if let Ok(price) = get_price_from_alpha_vantage(symbol).await {
+                return Ok(price);
+            }
+
+            return // fail
+                Err(format!(
+                    "無法取得加密貨幣價格 (可能為 API 限制或錯誤 symbol: {})",
+                    symbol
+                ));
         }
 
         "us-stock" | "us-etf" => {
@@ -29,7 +37,15 @@ pub async fn get_price(symbol: &str, category: &str) -> Result<f64, String> {
                 return Ok(price);
             }
 
-            get_price_from_yahoo(symbol).await
+            if let Ok(price) = get_price_from_yahoo(symbol).await {
+                return Ok(price);
+            }
+
+            return // fail
+                Err(format!(
+                    "無法取得美股價格 (可能為 API 限制或錯誤 symbol: {})",
+                    symbol
+                ));
         }
 
         "tw-stock" | "tw-etf" => {
