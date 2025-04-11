@@ -3,7 +3,7 @@ use serde::Deserialize;
 
 #[derive(Deserialize, Debug)]
 struct TwseResponse {
-    msgArray: Vec<TwseStock>,
+    msg_array: Vec<TwseStock>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -36,7 +36,7 @@ pub async fn get_price_from_twse(symbol: &str) -> Result<f64, String> {
             .await
             .map_err(|e| format!("[TWSE] 回傳 JSON 格式錯誤：{}", e))?;
         let price_str = data
-            .msgArray
+            .msg_array
             .get(0)
             .ok_or("[TWSE] 找不到股票資料")?
             .z
@@ -47,5 +47,19 @@ pub async fn get_price_from_twse(symbol: &str) -> Result<f64, String> {
             .map_err(|_| "[TWSE] 無法解析價格為浮點數".to_string())
     } else {
         Err(format!("[TWSE] HTTP 錯誤碼：{}", response.status()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_get_price_from_twse() {
+        let symbol = "2330"; // 台積電
+        match get_price_from_twse(symbol).await {
+            Ok(price) => println!("{} 的價格是：{}", symbol, price),
+            Err(e) => eprintln!("錯誤：{}", e),
+        }
     }
 }
