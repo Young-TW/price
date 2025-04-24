@@ -90,9 +90,7 @@ pub async fn get_pyth_feed_id(symbol: &str, asset_type: &str) -> Result<Option<S
 /// - `on_price`: 回呼函數，接收實際價格（`f64`）
 ///
 /// # 範例
-/// ```
 /// pyth_stream::subscribe_price_stream("0xe62d...", |price| println!("價格: {}", price)).await;
-/// ```
 pub async fn subscribe_price_stream<F>(id: &str, mut on_price: F) -> Result<(), Box<dyn Error>>
 where
     F: FnMut(f64) + Send + 'static,
