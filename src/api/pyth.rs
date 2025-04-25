@@ -1,8 +1,8 @@
+use eventsource_client::Client as EventSourceClient; // 避免與 reqwest::Client 衝突
+use eventsource_client::{ClientBuilder, SSE};
+use futures::StreamExt;
 use reqwest::Client;
 use serde::Deserialize;
-use eventsource_client::{ClientBuilder, SSE};
-use eventsource_client::Client as EventSourceClient; // 避免與 reqwest::Client 衝突
-use futures::StreamExt;
 use serde_json::Value;
 use std::error::Error;
 use std::fs;
@@ -41,13 +41,16 @@ pub async fn get_price_from_pyth(id: &str) -> Result<f64, String> {
         .build()
         .map_err(|e| e.to_string())?;
 
-    let response = client.get(&url).send().await.map_err(|e| {
-        format!("[Pyth] 查詢 {} 價格失敗：{}", id, e)
-    })?;
+    let response = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("[Pyth] 查詢 {} 價格失敗：{}", id, e))?;
 
-    let data: Vec<PythPriceEntry> = response.json().await.map_err(|e| {
-        format!("[Pyth] JSON 格式錯誤：{}", e)
-    })?;
+    let data: Vec<PythPriceEntry> = response
+        .json()
+        .await
+        .map_err(|e| format!("[Pyth] JSON 格式錯誤：{}", e))?;
 
     let entry = data.get(0).ok_or("[Pyth] 無價格資料")?;
     let value = entry.price.price as f64 * 10f64.powi(entry.price.expo);
@@ -66,11 +69,7 @@ pub async fn get_price_stream_from_pyth<F>(id: &str, mut on_price: F) -> Result<
 where
     F: FnMut(f64) + Send + 'static,
 {
-    let url = format!(
-        "{}/v2/updates/price/stream?ids[]={}",
-        BASE_URL,
-        id
-    );
+    let url = format!("{}/v2/updates/price/stream?ids[]={}", BASE_URL, id);
 
     let mut stream = ClientBuilder::for_url(&url)?.build().stream();
 
@@ -83,7 +82,7 @@ where
                             if let Some(price_obj) = entry.get("price") {
                                 if let (Some(price_str), Some(expo)) = (
                                     price_obj.get("price").and_then(|p| p.as_str()),
-                                    price_obj.get("expo").and_then(|e| e.as_i64())
+                                    price_obj.get("expo").and_then(|e| e.as_i64()),
                                 ) {
                                     if let Ok(price_int) = price_str.parse::<f64>() {
                                         let actual_price = price_int * 10f64.powi(expo as i32);
@@ -106,11 +105,12 @@ where
 }
 
 pub async fn get_pyth_feed_id(symbol: &str, category: &str) -> String {
-    let data = fs::read_to_string("src/api/data/pyth.toml")
-        .expect("無法讀取 Pyth 配置檔案");
-    let pairs: toml::Value = toml::from_str(&data)
-        .expect("無法解析 Pyth 配置檔案");
+    let target = symbol.to_uppercase();
+    let data = fs::read_to_string("src/api/data/pyth.toml").expect("無法讀取 Pyth 配置檔案");
+    let pairs: toml::Value = toml::from_str(&data).expect("無法解析 Pyth 配置檔案");
     let feeds = pairs.get("id").expect("無法找到 feeds");
-    let feed_id = feeds.get(symbol).expect("無法找到 feed_id");
+    let feed_id = feeds
+        .get(&target)
+        .unwrap_or_else(|| panic!("無法找到 feed_id, symbol = {}", symbol));
     return feed_id.to_string();
 }
