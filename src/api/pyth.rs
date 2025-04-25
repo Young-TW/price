@@ -5,6 +5,7 @@ use eventsource_client::Client as EventSourceClient; // 避免與 reqwest::Clien
 use futures::StreamExt;
 use serde_json::Value;
 use std::error::Error;
+use std::fs;
 
 const BASE_URL: &str = "https://hermes.pyth.network";
 
@@ -33,18 +34,15 @@ struct PythPrice {
 }
 
 /// 查詢最新價格（會自動找 feed id）
-pub async fn get_price_from_pyth(symbol: &str) -> Result<f64, String> {
-    let feed_id = get_pyth_feed_id(symbol, "crypto").await?
-        .ok_or_else(|| format!("[Pyth] 找不到資產：{}", symbol))?;
-
-    let url = format!("{}/api/latest_price_feeds?ids[]={}", BASE_URL, feed_id);
+pub async fn get_price_from_pyth(id: &str) -> Result<f64, String> {
+    let url = format!("{}/api/latest_price_feeds?ids[]={}", BASE_URL, id);
     let client = Client::builder()
         .timeout(std::time::Duration::from_secs(5))
         .build()
         .map_err(|e| e.to_string())?;
 
     let response = client.get(&url).send().await.map_err(|e| {
-        format!("[Pyth] 查詢 {} 價格失敗：{}", symbol, e)
+        format!("[Pyth] 查詢 {} 價格失敗：{}", id, e)
     })?;
 
     let data: Vec<PythPriceEntry> = response.json().await.map_err(|e| {
@@ -54,35 +52,6 @@ pub async fn get_price_from_pyth(symbol: &str) -> Result<f64, String> {
     let entry = data.get(0).ok_or("[Pyth] 無價格資料")?;
     let value = entry.price.price as f64 * 10f64.powi(entry.price.expo);
     Ok(value)
-}
-
-/// 查詢對應 symbol 的 feed_id
-pub async fn get_pyth_feed_id(symbol: &str, asset_type: &str) -> Result<Option<String>, String> {
-    let url = format!("{}/api/price_feeds", BASE_URL);
-    let client = Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
-        .build()
-        .map_err(|e| e.to_string())?;
-
-    let response = client.get(&url).send().await.map_err(|e| {
-        format!("[Pyth] 查詢 feed 失敗：{}", e)
-    })?;
-
-    let text = response.text().await.map_err(|e| e.to_string())?;
-    println!("Raw JSON: {}", text);
-    let feeds: Vec<PythFeed> = serde_json::from_str(&text).map_err(|e| {
-        format!("[Pyth] Feed JSON 格式錯誤：{}", e)
-    })?;
-
-    for feed in feeds {
-        if feed.product.base.eq_ignore_ascii_case(symbol)
-            && feed.product.asset_type.eq_ignore_ascii_case(asset_type)
-        {
-            return Ok(Some(feed.id));
-        }
-    }
-
-    Ok(None)
 }
 
 /// 訂閱 Pyth 即時價格串流，並將價格回傳給 callback 函數。
@@ -134,4 +103,14 @@ where
     }
 
     Ok(())
+}
+
+pub async fn get_pyth_feed_id(symbol: &str, category: &str) -> String {
+    let data = fs::read_to_string("src/api/data/pyth.toml")
+        .expect("無法讀取 Pyth 配置檔案");
+    let pairs: toml::Value = toml::from_str(&data)
+        .expect("無法解析 Pyth 配置檔案");
+    let feeds = pairs.get("id").expect("無法找到 feeds");
+    let feed_id = feeds.get(symbol).expect("無法找到 feed_id");
+    return feed_id.to_string();
 }

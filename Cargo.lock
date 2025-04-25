@@ -1046,6 +1046,7 @@ dependencies = [
  "eventsource-client",
  "futures",
  "lazy_static",
+ "once_cell",
  "reqwest",
  "serde",
  "serde_json",

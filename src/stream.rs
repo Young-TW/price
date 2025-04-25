@@ -22,9 +22,7 @@ pub async fn lazy_stream() {
             let symbol = symbol.clone();
             let amount = *amount;
             let id = get_pyth_feed_id(&symbol, "crypto")
-                .await
-                .expect("查詢 feed id 失敗")
-                .expect("找不到資產");
+                .await;
 
             tokio::spawn(async move {
                 let _ = get_price_stream_from_pyth(&id, move |price| {
@@ -48,7 +46,6 @@ pub async fn lazy_stream() {
         let map = prices.lock().unwrap();
         let mut total_value = 0.0;
         for (symbol, value) in map.iter() {
-            println!("{}: ${:.2}", symbol, value);
             total_value += value;
         }
 
