@@ -1,6 +1,8 @@
 use crate::api::alpha_vantage::get_price_from_alpha_vantage;
 use crate::api::binance::get_price_from_binance;
-use crate::api::pyth::get_price_from_pyth;
+use crate::api::pyth::{
+    get_price_from_pyth, get_pyth_feed_id, get_price_stream_from_pyth,
+};
 use crate::api::redstone::get_price_from_redstone;
 use crate::api::twse::get_price_from_twse;
 use crate::api::yahoo::get_price_from_yahoo;

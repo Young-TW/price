@@ -68,7 +68,9 @@ pub async fn get_pyth_feed_id(symbol: &str, asset_type: &str) -> Result<Option<S
         format!("[Pyth] 查詢 feed 失敗：{}", e)
     })?;
 
-    let feeds: Vec<PythFeed> = response.json().await.map_err(|e| {
+    let text = response.text().await.map_err(|e| e.to_string())?;
+    println!("Raw JSON: {}", text);
+    let feeds: Vec<PythFeed> = serde_json::from_str(&text).map_err(|e| {
         format!("[Pyth] Feed JSON 格式錯誤：{}", e)
     })?;
 
@@ -91,12 +93,13 @@ pub async fn get_pyth_feed_id(symbol: &str, asset_type: &str) -> Result<Option<S
 ///
 /// # 範例
 /// pyth_stream::subscribe_price_stream("0xe62d...", |price| println!("價格: {}", price)).await;
-pub async fn subscribe_price_stream<F>(id: &str, mut on_price: F) -> Result<(), Box<dyn Error>>
+pub async fn get_price_stream_from_pyth<F>(id: &str, mut on_price: F) -> Result<(), Box<dyn Error>>
 where
     F: FnMut(f64) + Send + 'static,
 {
     let url = format!(
-        "https://hermes.pyth.network/v2/updates/price/stream?ids[]={}",
+        "{}/v2/updates/price/stream?ids[]={}",
+        BASE_URL,
         id
     );
 

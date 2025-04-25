@@ -7,6 +7,7 @@ mod stream;
 
 #[tokio::main]
 async fn main() {
+    println!("testing stream function");
     /*
     println!(
         "total invesment value: {}",
@@ -14,5 +15,6 @@ async fn main() {
     );
     */
 
-    stream::stream(5).await;
+    // stream::stream(5).await;
+    // stream::lazy_stream().await;
 }
