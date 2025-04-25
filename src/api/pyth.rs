@@ -112,5 +112,6 @@ pub async fn get_pyth_feed_id(symbol: &str, category: &str) -> String {
     let feed_id = feeds
         .get(&target)
         .unwrap_or_else(|| panic!("無法找到 feed_id, symbol = {}", symbol));
-    return feed_id.to_string();
+    let raw = feed_id.as_str().expect("feed_id 應為字串");
+    return raw.to_string();
 }
