@@ -1,60 +1,34 @@
 use eventsource_client::Client as EventSourceClient; // 避免與 reqwest::Client 衝突
 use eventsource_client::{ClientBuilder, SSE};
+
 use futures::StreamExt;
-use reqwest::Client;
-use serde::Deserialize;
 use serde_json::Value;
 use std::error::Error;
 use std::fs;
+use std::collections::HashMap;
+use tokio::sync::Mutex;
+use std::sync::Arc;
 
 const BASE_URL: &str = "https://hermes.pyth.network";
 
-#[derive(Debug, Deserialize)]
-struct PythFeed {
-    id: String,
-    product: PythProduct,
+pub trait PriceContainer {
+    fn update(&mut self, symbol: String, price: f64);
 }
 
-#[derive(Debug, Deserialize)]
-struct PythProduct {
-    base: String,
-    #[serde(rename = "asset_type")]
-    asset_type: String,
+impl PriceContainer for Vec<(String, f64)> {
+    fn update(&mut self, symbol: String, price: f64) {
+        if let Some(entry) = self.iter_mut().find(|(s, _)| *s == symbol) {
+            entry.1 = price;
+        } else {
+            self.push((symbol, price));
+        }
+    }
 }
 
-#[derive(Debug, Deserialize)]
-struct PythPriceEntry {
-    price: PythPrice,
-}
-
-#[derive(Debug, Deserialize)]
-struct PythPrice {
-    price: i64,
-    expo: i32,
-}
-
-/// 查詢最新價格（會自動找 feed id）
-pub async fn get_price_from_pyth(id: &str) -> Result<f64, String> {
-    let url = format!("{}/api/latest_price_feeds?ids[]={}", BASE_URL, id);
-    let client = Client::builder()
-        .timeout(std::time::Duration::from_secs(5))
-        .build()
-        .map_err(|e| e.to_string())?;
-
-    let response = client
-        .get(&url)
-        .send()
-        .await
-        .map_err(|e| format!("[Pyth] 查詢 {} 價格失敗：{}", id, e))?;
-
-    let data: Vec<PythPriceEntry> = response
-        .json()
-        .await
-        .map_err(|e| format!("[Pyth] JSON 格式錯誤：{}", e))?;
-
-    let entry = data.get(0).ok_or("[Pyth] 無價格資料")?;
-    let value = entry.price.price as f64 * 10f64.powi(entry.price.expo);
-    Ok(value)
+impl PriceContainer for HashMap<String, f64> {
+    fn update(&mut self, symbol: String, price: f64) {
+        self.insert(symbol, price);
+    }
 }
 
 /// 訂閱 Pyth 即時價格串流，並將價格回傳給 callback 函數。
@@ -114,4 +88,42 @@ pub async fn get_pyth_feed_id(symbol: &str, category: &str) -> String {
         .unwrap_or_else(|| panic!("無法找到 feed_id, symbol = {}", symbol));
     let raw = feed_id.as_str().expect("feed_id 應為字串");
     return raw.to_string();
+}
+
+pub fn spawn_price_stream<C>(
+    symbol: &str,
+    category: &str,
+    prices: Arc<Mutex<C>>,
+) where
+    C: PriceContainer + Send + 'static,
+{
+    let symbol = symbol.to_string();
+    let category = category.to_string();
+    tokio::spawn(async move {
+        let id = get_pyth_feed_id(&symbol, &category).await;
+        let symbol_clone = symbol.clone();
+        if let Err(e) = get_price_stream_from_pyth(id.as_str(), move |price| {
+            let prices = Arc::clone(&prices);
+            let symbol_clone = symbol_clone.clone();
+            tokio::spawn(async move {
+                let mut prices = prices.lock().await;
+                prices.update(symbol_clone.clone(), price);
+            });
+        }).await {
+            eprintln!("Error occurred for {}: {}", symbol, e);
+        }
+    });
+}
+
+fn update_price(symbol: &str, price: f64, prices: &Arc<Mutex<Vec<(String, f64)>>>) {
+    let symbol = symbol.to_string(); // Clone symbol to ensure it is owned
+    let prices = Arc::clone(prices); // Clone Arc to ensure it is owned
+    tokio::spawn(async move {
+        let mut prices = prices.lock().await;
+        if let Some(entry) = prices.iter_mut().find(|(s, _)| s == &symbol) {
+            entry.1 = price;
+        } else {
+            prices.push((symbol, price));
+        }
+    });
 }

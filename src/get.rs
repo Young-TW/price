@@ -1,14 +1,12 @@
-use crate::api::alpha_vantage::get_price_from_alpha_vantage;
-use crate::api::binance::get_price_from_binance;
-use crate::api::pyth::{
-    get_price_from_pyth, get_pyth_feed_id, get_price_stream_from_pyth,
-};
+// use crate::api::alpha_vantage::get_price_from_alpha_vantage;
+// use crate::api::binance::get_price_from_binance;
 use crate::api::redstone::get_price_from_redstone;
 use crate::api::twse::get_price_from_twse;
 use crate::api::yahoo::get_price_from_yahoo;
 
 pub async fn get_price(symbol: &str, category: &str) -> Result<f64, String> {
     match category {
+        /*
         "crypto" => {
             if let Ok(price) = get_price_from_pyth(symbol).await {
                 return Ok(price);
@@ -27,12 +25,14 @@ pub async fn get_price(symbol: &str, category: &str) -> Result<f64, String> {
                 "無法取得加密貨幣價格 (可能為 API 限制或錯誤 symbol: {})",
                 symbol
             ));
-        }
+        } */
 
         "us-stock" | "us-etf" => {
+            /*
             if let Ok(price) = get_price_from_pyth(symbol).await {
                 return Ok(price);
             }
+            */
             if let Ok(price) = get_price_from_redstone(symbol).await {
                 return Ok(price);
             }

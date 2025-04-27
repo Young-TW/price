@@ -3,14 +3,14 @@ use crossterm::{cursor, execute, terminal};
 use futures::stream::{FuturesUnordered, StreamExt};
 use std::collections::HashMap;
 use std::io::stdout;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use tokio::sync::Mutex;
 use std::time::Duration;
 
-use crate::api::pyth::{get_price_stream_from_pyth, get_pyth_feed_id};
+use crate::api::pyth::spawn_price_stream;
 use crate::config::read_portfolio;
 use crate::get::get_price;
-
-type SharedPriceMap = Arc<Mutex<HashMap<String, f64>>>;
+type SharedPriceMap = Arc<tokio::sync::Mutex<HashMap<String, f64>>>;
 
 pub async fn stream(cycle: u64) {
     let prices: SharedPriceMap = Arc::new(Mutex::new(HashMap::new()));
@@ -18,14 +18,19 @@ pub async fn stream(cycle: u64) {
     let lazy_prices = prices.clone();
     let polling_prices = prices.clone();
 
+    // 啟動 lazy_stream
     tokio::spawn(async move {
         lazy_stream(lazy_prices).await;
     });
 
+    // 啟動 polling_stream
+    /*
     tokio::spawn(async move {
         polling_stream(polling_prices, cycle).await;
     });
+    */
 
+    // 主 loop
     let mut stdout = stdout();
 
     loop {
@@ -36,7 +41,7 @@ pub async fn stream(cycle: u64) {
         )
         .unwrap();
 
-        let map = prices.lock().unwrap();
+        let map = prices.lock().await;
         let mut total_value = 0.0;
 
         for (symbol, value) in map.iter() {
@@ -60,24 +65,14 @@ pub async fn lazy_stream(prices: SharedPriceMap) {
         for (symbol, amount) in items {
             let prices = prices.clone();
             let symbol_owned = symbol.clone();
-            let amount = *amount;
-            let id = get_pyth_feed_id(&symbol_owned, "crypto").await;
-
-            tokio::spawn(async move {
-                let _ = get_price_stream_from_pyth(&id, {
-                    let symbol_in_cb = symbol_owned.clone();
-                    move |price| {
-                        let mut map = prices.lock().unwrap();
-                        let total = price * amount;
-                        map.insert(symbol_in_cb.clone(), total);
-                    }
-                }).await;
-            });
+            // 本來你有乘上持倉量 amount，如果要保留這個，要在 price 加工
+            spawn_price_stream(&symbol_owned, "crypto", prices.clone());
         }
     } else {
         println!("[警告] portfolio.toml 中找不到 [crypto] 欄位");
     }
 }
+
 pub async fn polling_stream(prices: SharedPriceMap, cycle: u64) {
     let portfolio = read_portfolio("config/portfolio.toml").expect("無法讀取資產組合檔案");
 
@@ -106,7 +101,7 @@ pub async fn polling_stream(prices: SharedPriceMap, cycle: u64) {
 
         while let Some(result) = tasks.next().await {
             if let Some((symbol, amount, price)) = result {
-                let mut map = prices.lock().unwrap();
+                let mut map = prices.lock().await;
                 map.insert(symbol, price * amount);
             }
         }
