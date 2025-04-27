@@ -15,6 +15,6 @@ async fn main() {
     );
     */
 
-    // stream::stream(5).await;
-    stream::lazy_stream().await;
+    stream::stream(5).await;
+    // stream::lazy_stream().await;
 }
