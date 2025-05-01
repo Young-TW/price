@@ -24,11 +24,9 @@ pub async fn stream(cycle: u64) {
     });
 
     // 啟動 polling_stream
-    /*
     tokio::spawn(async move {
         polling_stream(polling_prices, cycle).await;
     });
-    */
 
     // 主 loop
     let mut stdout = stdout();
