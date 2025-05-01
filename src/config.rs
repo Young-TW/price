@@ -20,3 +20,8 @@ pub fn read_api_keys(path: &str) -> Result<HashMap<String, String>, String> {
     let keys: ApiKeys = toml::from_str(&content).map_err(|e| format!("TOML 解析失敗: {}", e))?;
     Ok(keys.0)
 }
+
+pub fn read_portfolio_from_string(content: &str) -> Result<HashMap<String, HashMap<String, f64>>, String> {
+    let portfolio: Portfolio = toml::from_str(content).map_err(|e| format!("TOML 解析失敗: {}", e))?;
+    Ok(portfolio.0)
+}

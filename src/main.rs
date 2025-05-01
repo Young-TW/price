@@ -1,11 +1,12 @@
-mod api;
-mod config;
-mod get;
+use server::start_server;
 
-mod calculate;
+mod api;
+mod get;
+mod config;
 mod stream;
+mod server;
 
 #[tokio::main]
 async fn main() {
-    stream::stream(5).await;
+    start_server().await;
 }

@@ -1,36 +1,43 @@
+// stream.rs — WebSocket 版本：以已解析的 portfolio Map 為輸入，推播即時價格
+
 use colored::*;
 use crossterm::{cursor, execute, terminal};
 use futures::stream::{FuturesUnordered, StreamExt};
 use std::collections::HashMap;
 use std::io::stdout;
 use std::sync::Arc;
-use tokio::sync::Mutex;
 use std::time::Duration;
+use tokio::sync::{broadcast, Mutex};
 
 use crate::api::pyth::spawn_price_stream;
-use crate::config::read_portfolio;
 use crate::get::get_price;
-type SharedPriceMap = Arc<tokio::sync::Mutex<HashMap<String, f64>>>;
 
-pub async fn stream(cycle: u64) {
+type SharedPriceMap = Arc<Mutex<HashMap<String, f64>>>;
+type Portfolio = Arc<HashMap<String, HashMap<String, f64>>>;
+
+/// 啟動完整串流：
+/// * `portfolio`   — 已解析的資產組合 (Arc 共用)
+/// * `cycle`       — 輪詢股/ETF 價格的秒數
+/// * `tx`          — broadcast sender，推播給所有 WebSocket 客戶端
+pub async fn stream(portfolio: Portfolio, cycle: u64, tx: broadcast::Sender<String>) {
     let prices: SharedPriceMap = Arc::new(Mutex::new(HashMap::new()));
 
-    let lazy_prices = prices.clone();
-    let polling_prices = prices.clone();
-
-    // 啟動 lazy_stream
-    tokio::spawn(async move {
-        lazy_stream(lazy_prices).await;
+    // 啟動 lazy_stream（加密貨幣即時串流）
+    tokio::spawn({
+        let p = portfolio.clone();
+        let pr = prices.clone();
+        async move { lazy_stream(p, pr).await; }
     });
 
-    // 啟動 polling_stream
-    tokio::spawn(async move {
-        polling_stream(polling_prices, cycle).await;
+    // 啟動 polling_stream（股票/ETF 輪詢）
+    tokio::spawn({
+        let p = portfolio.clone();
+        let pr = prices.clone();
+        async move { polling_stream(p, pr, cycle).await; }
     });
 
-    // 主 loop
+    // 主 loop：每秒整合並廣播一次總表
     let mut stdout = stdout();
-
     loop {
         execute!(
             stdout,
@@ -41,39 +48,37 @@ pub async fn stream(cycle: u64) {
 
         let map = prices.lock().await;
         let mut total_value = 0.0;
+        let mut buf = String::new();
 
         for (symbol, value) in map.iter() {
-            println!("{symbol}: ${:.2}", value);
+            buf.push_str(&format!("{symbol}: ${:.2}\n", value));
             total_value += value;
         }
+        buf.push_str(&format!("\n總資產 (USD)：${:.2}", total_value));
 
-        println!(
-            "\n{}",
-            format!("總資產 (USD)：${:.2}", total_value).bold().green()
-        );
+        // 印在 CLI
+        println!("{}", buf.replace('\n', "\n"));
+
+        // 推播給所有 WS 客戶端
+        let _ = tx.send(buf);
 
         tokio::time::sleep(Duration::from_secs(1)).await;
     }
 }
 
-pub async fn lazy_stream(prices: SharedPriceMap) {
-    let portfolio = read_portfolio("config/portfolio.toml").expect("無法讀取資產組合檔案");
-
+/// 加密貨幣：使用外部即時流直接更新 `prices`
+async fn lazy_stream(portfolio: Portfolio, prices: SharedPriceMap) {
     if let Some(items) = portfolio.get("crypto") {
-        for (symbol, amount) in items {
+        for (symbol, _amount) in items { // 持倉量如要加權，可在外層處理
             let prices = prices.clone();
-            let symbol_owned = symbol.clone();
-            // 本來你有乘上持倉量 amount，如果要保留這個，要在 price 加工
-            spawn_price_stream(&symbol_owned, "crypto", prices.clone());
+            let sym_owned = symbol.clone();
+            spawn_price_stream(&sym_owned, "crypto", prices);
         }
-    } else {
-        println!("[警告] portfolio.toml 中找不到 [crypto] 欄位");
     }
 }
 
-pub async fn polling_stream(prices: SharedPriceMap, cycle: u64) {
-    let portfolio = read_portfolio("config/portfolio.toml").expect("無法讀取資產組合檔案");
-
+/// 輪詢股票/ETF 價格，每 `cycle` 秒更新一次 `prices`
+async fn polling_stream(portfolio: Portfolio, prices: SharedPriceMap, cycle: u64) {
     loop {
         let mut tasks = FuturesUnordered::new();
 
@@ -83,7 +88,6 @@ pub async fn polling_stream(prices: SharedPriceMap, cycle: u64) {
                     let symbol = symbol.clone();
                     let category = category.to_string();
                     let amount = *amount;
-
                     tasks.push(async move {
                         match get_price(&symbol, &category).await {
                             Ok(price) => Some((symbol, amount, price)),
@@ -97,11 +101,9 @@ pub async fn polling_stream(prices: SharedPriceMap, cycle: u64) {
             }
         }
 
-        while let Some(result) = tasks.next().await {
-            if let Some((symbol, amount, price)) = result {
-                let mut map = prices.lock().await;
-                map.insert(symbol, price * amount);
-            }
+        while let Some(Some((sym, amount, price))) = tasks.next().await {
+            let mut map = prices.lock().await;
+            map.insert(sym, price * amount);
         }
 
         tokio::time::sleep(Duration::from_secs(cycle)).await;
