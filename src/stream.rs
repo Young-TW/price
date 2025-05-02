@@ -8,24 +8,26 @@ use tokio::sync::Mutex;
 use std::time::Duration;
 
 use crate::api::pyth::spawn_price_stream;
-use crate::config::read_portfolio;
 use crate::get::get_price;
 type SharedPriceMap = Arc<tokio::sync::Mutex<HashMap<String, f64>>>;
+type Portfolio = HashMap<String, HashMap<String, f64>>;
 
-pub async fn stream(cycle: u64) {
+pub async fn stream(cycle: u64, portfolio: Portfolio) {
     let prices: SharedPriceMap = Arc::new(Mutex::new(HashMap::new()));
 
     let lazy_prices = prices.clone();
     let polling_prices = prices.clone();
+    let portfolio_clone_for_lazy = portfolio.clone();
+    let portfolio_clone_for_polling = portfolio.clone();
 
     // 啟動 lazy_stream
     tokio::spawn(async move {
-        lazy_stream(lazy_prices).await;
+        lazy_stream(lazy_prices, portfolio_clone_for_lazy).await;
     });
 
     // 啟動 polling_stream
     tokio::spawn(async move {
-        polling_stream(polling_prices, cycle).await;
+        polling_stream(polling_prices, cycle, portfolio_clone_for_polling).await;
     });
 
     // 主 loop
@@ -56,9 +58,7 @@ pub async fn stream(cycle: u64) {
     }
 }
 
-pub async fn lazy_stream(prices: SharedPriceMap) {
-    let portfolio = read_portfolio("config/portfolio.toml").expect("無法讀取資產組合檔案");
-
+pub async fn lazy_stream(prices: SharedPriceMap, portfolio: Portfolio) {
     if let Some(items) = portfolio.get("crypto") {
         for (symbol, amount) in items {
             let prices = prices.clone();
@@ -71,9 +71,7 @@ pub async fn lazy_stream(prices: SharedPriceMap) {
     }
 }
 
-pub async fn polling_stream(prices: SharedPriceMap, cycle: u64) {
-    let portfolio = read_portfolio("config/portfolio.toml").expect("無法讀取資產組合檔案");
-
+pub async fn polling_stream(prices: SharedPriceMap, cycle: u64, portfolio: Portfolio) {
     loop {
         let mut tasks = FuturesUnordered::new();
 
