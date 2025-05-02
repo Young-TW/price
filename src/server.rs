@@ -85,6 +85,6 @@ pub async fn start_server() {
 
     // 伺服器啟動
     warp::serve(ws_route.or(post_route))
-        .run(([127, 0, 0, 1], 3030))
+        .run(([0, 0, 0, 0], 3030))
         .await;
 }
