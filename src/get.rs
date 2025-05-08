@@ -27,7 +27,7 @@ pub async fn get_price(symbol: &str, category: &str) -> Result<f64, String> {
             ));
         } */
 
-        "us-stock" | "us-etf" => {
+        "US-Stock" | "US-ETF" => {
             /*
             if let Ok(price) = get_price_from_pyth(symbol).await {
                 return Ok(price);
@@ -46,7 +46,7 @@ pub async fn get_price(symbol: &str, category: &str) -> Result<f64, String> {
             ));
         }
 
-        "tw-stock" | "tw-etf" => {
+        "TW-Stock" | "TW-ETF" => {
             if let Ok(price) = get_price_from_twse(symbol).await {
                 return Ok(price);
             }

@@ -10,7 +10,7 @@ pub async fn calculate_total() -> f64 {
     let mut total_value = 0.0;
     let mut tasks = FuturesUnordered::new();
 
-    for category in ["crypto", "us-stock", "us-etf", "tw-stock", "tw-etf"] {
+    for category in ["Crypto", "US-Stock", "US-etf", "TW-Stock", "TW-ETF"] {
         if let Some(items) = portfolio.get(category) {
             for (symbol, amount) in items {
                 let symbol = symbol.clone();

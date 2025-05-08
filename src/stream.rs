@@ -59,15 +59,15 @@ pub async fn stream(cycle: u64, portfolio: Portfolio) {
 }
 
 pub async fn lazy_stream(prices: SharedPriceMap, portfolio: Portfolio) {
-    if let Some(items) = portfolio.get("crypto") {
+    if let Some(items) = portfolio.get("Crypto") {
         for (symbol, amount) in items {
             let prices = prices.clone();
             let symbol_owned = symbol.clone();
             // 本來你有乘上持倉量 amount，如果要保留這個，要在 price 加工
-            spawn_price_stream(&symbol_owned, "crypto", prices.clone());
+            spawn_price_stream(&symbol_owned, "Crypto", prices.clone());
         }
     } else {
-        println!("[警告] portfolio.toml 中找不到 [crypto] 欄位");
+        println!("[警告] portfolio.toml 中找不到 [Crypto] 欄位");
     }
 }
 
@@ -75,7 +75,7 @@ pub async fn polling_stream(prices: SharedPriceMap, cycle: u64, portfolio: Portf
     loop {
         let mut tasks = FuturesUnordered::new();
 
-        for category in ["us-stock", "us-etf", "tw-stock", "tw-etf"] {
+        for category in ["US-Stock", "US-ETF", "TW-Stock", "TW-ETF"] {
             if let Some(items) = portfolio.get(category) {
                 for (symbol, amount) in items {
                     let symbol = symbol.clone();
