@@ -75,7 +75,7 @@ pub async fn polling_stream(prices: SharedPriceMap, cycle: u64, portfolio: Portf
     loop {
         let mut tasks = FuturesUnordered::new();
 
-        for category in ["US-Stock", "US-ETF", "TW-Stock", "TW-ETF"] {
+        for category in ["TW-Stock", "TW-ETF"] {
             if let Some(items) = portfolio.get(category) {
                 for (symbol, amount) in items {
                     let symbol = symbol.clone();

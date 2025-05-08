@@ -82,7 +82,7 @@ pub async fn get_pyth_feed_id(symbol: &str, category: &str) -> String {
     let target = symbol.to_uppercase();
     let data = fs::read_to_string("src/api/data/pyth.toml").expect("無法讀取 Pyth 配置檔案");
     let pairs: toml::Value = toml::from_str(&data).expect("無法解析 Pyth 配置檔案");
-    let feeds = pairs.get("id").expect("無法找到 feeds");
+    let feeds = pairs.get(category).expect("無法找到 feeds");
     let feed_id = feeds
         .get(&target)
         .unwrap_or_else(|| panic!("無法找到 feed_id, symbol = {}", symbol));
