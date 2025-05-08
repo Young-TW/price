@@ -59,15 +59,21 @@ pub async fn stream(cycle: u64, portfolio: Portfolio) {
 }
 
 pub async fn lazy_stream(prices: SharedPriceMap, portfolio: Portfolio) {
-    if let Some(items) = portfolio.get("Crypto") {
-        for (symbol, amount) in items {
-            let prices = prices.clone();
-            let symbol_owned = symbol.clone();
-            // 本來你有乘上持倉量 amount，如果要保留這個，要在 price 加工
-            spawn_price_stream(&symbol_owned, "Crypto", prices.clone());
+    // 定義需要處理的分類
+    let categories = ["Crypto", "US-Stock", "US-ETF"];
+
+    for category in categories {
+        if let Some(items) = portfolio.get(category) {
+            for (symbol, amount) in items {
+                let prices = prices.clone();
+                let symbol_owned = symbol.clone();
+                let category_owned = category.to_string();
+                // 如果需要乘上持倉量 amount，可以在這裡處理
+                spawn_price_stream(&symbol_owned, &category_owned, prices.clone());
+            }
+        } else {
+            println!("[警告] portfolio.toml 中找不到 [{category}] 欄位");
         }
-    } else {
-        println!("[警告] portfolio.toml 中找不到 [Crypto] 欄位");
     }
 }
 
