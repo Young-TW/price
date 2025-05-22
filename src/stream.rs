@@ -19,50 +19,71 @@ type Portfolio = Arc<HashMap<String, HashMap<String, f64>>>;
 /// * `portfolio`   — 已解析的資產組合 (Arc 共用)
 /// * `cycle`       — 輪詢股/ETF 價格的秒數
 /// * `tx`          — broadcast sender，推播給所有 WebSocket 客戶端
-pub async fn stream(portfolio: Portfolio, cycle: u64, tx: broadcast::Sender<String>) {
-    let prices: SharedPriceMap = Arc::new(Mutex::new(HashMap::new()));
-
-    // 啟動 lazy_stream（加密貨幣即時串流）
-    tokio::spawn({
-        let p = portfolio.clone();
-        let pr = prices.clone();
-        async move { lazy_stream(p, pr).await; }
-    });
-
-    // 啟動 polling_stream（股票/ETF 輪詢）
-    tokio::spawn({
-        let p = portfolio.clone();
-        let pr = prices.clone();
-        async move { polling_stream(p, pr, cycle).await; }
-    });
-
-    // 主 loop：每秒整合並廣播一次總表
-    let mut stdout = stdout();
+pub async fn stream(
+    portfolio: Arc<Mutex<Option<HashMap<String, HashMap<String, f64>>>>>,
+    cycle: u64,
+    tx: broadcast::Sender<String>
+) {
+    // 這裡不要再巢狀 loop
     loop {
-        execute!(
-            stdout,
-            terminal::Clear(terminal::ClearType::All),
-            cursor::MoveTo(0, 0)
-        )
-        .unwrap();
+        // 只 lock 一下，馬上 clone 出來
+        let pf_opt = {
+            let pf_lock = portfolio.lock().await;
+            pf_lock.clone()
+        };
 
-        let map = prices.lock().await;
-        let mut total_value = 0.0;
-        let mut buf = String::new();
+        if let Some(ref pf) = pf_opt {
+            let prices: SharedPriceMap = Arc::new(Mutex::new(HashMap::new()));
+            let pf_arc = Arc::new(pf.clone());
 
-        for (symbol, value) in map.iter() {
-            buf.push_str(&format!("{symbol}: ${:.2}\n", value));
-            total_value += value;
+            // 這裡直接 await，等這一輪 lazy/polling 結束再進下一輪
+            let lazy = tokio::spawn({
+                let p = pf_arc.clone();
+                let pr = prices.clone();
+                async move { lazy_stream(p, pr).await; }
+            });
+
+            let polling = tokio::spawn({
+                let p = pf_arc.clone();
+                let pr = prices.clone();
+                async move { polling_stream(p, pr, cycle).await; }
+            });
+
+            // 主 loop：每秒整合並廣播一次總表，這裡只跑一輪
+            let mut stdout = stdout();
+            for _ in 0..cycle {
+                execute!(
+                    stdout,
+                    terminal::Clear(terminal::ClearType::All),
+                    cursor::MoveTo(0, 0)
+                )
+                .unwrap();
+
+                let map = prices.lock().await;
+                let mut total_value = 0.0;
+                let mut buf = String::new();
+
+                for (symbol, value) in map.iter() {
+                    buf.push_str(&format!("{symbol}: ${:.2}\n", value));
+                    total_value += value;
+                }
+                buf.push_str(&format!("\n總資產 (USD)：${:.2}", total_value));
+
+                // 印在 CLI
+                println!("{}", buf.replace('\n', "\n"));
+
+                // 推播給所有 WS 客戶端
+                let _ = tx.send(buf);
+
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
+
+            // 結束這一輪後，abort 掉 lazy/polling
+            lazy.abort();
+            polling.abort();
+        } else {
+            tokio::time::sleep(Duration::from_secs(1)).await;
         }
-        buf.push_str(&format!("\n總資產 (USD)：${:.2}", total_value));
-
-        // 印在 CLI
-        println!("{}", buf.replace('\n', "\n"));
-
-        // 推播給所有 WS 客戶端
-        let _ = tx.send(buf);
-
-        tokio::time::sleep(Duration::from_secs(1)).await;
     }
 }
 
