@@ -114,16 +114,3 @@ pub fn spawn_price_stream<C>(
         }
     });
 }
-
-fn update_price(symbol: &str, price: f64, prices: &Arc<Mutex<Vec<(String, f64)>>>) {
-    let symbol = symbol.to_string(); // Clone symbol to ensure it is owned
-    let prices = Arc::clone(prices); // Clone Arc to ensure it is owned
-    tokio::spawn(async move {
-        let mut prices = prices.lock().await;
-        if let Some(entry) = prices.iter_mut().find(|(s, _)| s == &symbol) {
-            entry.1 = price;
-        } else {
-            prices.push((symbol, price));
-        }
-    });
-}

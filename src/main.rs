@@ -4,7 +4,6 @@ mod api;
 mod config;
 mod get;
 
-mod calculate;
 mod stream;
 
 #[tokio::main]
