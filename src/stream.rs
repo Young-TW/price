@@ -45,8 +45,17 @@ pub async fn stream(cycle: u64, portfolio: Portfolio) {
         let mut total_value = 0.0;
 
         for (symbol, value) in map.iter() {
-            println!("{symbol}: ${:.2}", value);
-            total_value += value;
+            // 從 portfolio 找到該 symbol 的持有數量
+            let mut amount = 1.0;
+            for items in portfolio.values() {
+                if let Some(a) = items.get(symbol) {
+                    amount = *a;
+                    break;
+                }
+            }
+            let asset_value = value * amount;
+            println!("{symbol}: ${:.2} x {:.4} = ${:.2}", value, amount, asset_value);
+            total_value += asset_value;
         }
 
         println!(
