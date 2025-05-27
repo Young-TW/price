@@ -64,7 +64,7 @@ pub async fn lazy_stream(prices: SharedPriceMap, portfolio: Portfolio) {
 
     for category in categories {
         if let Some(items) = portfolio.get(category) {
-            for (symbol, amount) in items {
+            for (symbol, _amount) in items {
                 let prices = prices.clone();
                 let symbol_owned = symbol.clone();
                 let category_owned = category.to_string();
@@ -83,14 +83,13 @@ pub async fn polling_stream(prices: SharedPriceMap, cycle: u64, portfolio: Portf
 
         for category in ["TW-Stock", "TW-ETF"] {
             if let Some(items) = portfolio.get(category) {
-                for (symbol, amount) in items {
+                for (symbol, _amount) in items {
                     let symbol = symbol.clone();
                     let category = category.to_string();
-                    let amount = *amount;
 
                     tasks.push(async move {
                         match get_price(&symbol, &category).await {
-                            Ok(price) => Some((symbol, amount, price)),
+                            Ok(price) => Some((symbol, _amount, price)),
                             Err(_) => {
                                 println!("無法獲取 {} 的價格", symbol);
                                 None
@@ -102,9 +101,9 @@ pub async fn polling_stream(prices: SharedPriceMap, cycle: u64, portfolio: Portf
         }
 
         while let Some(result) = tasks.next().await {
-            if let Some((symbol, amount, price)) = result {
+            if let Some((symbol, _amount, price)) = result {
                 let mut map = prices.lock().await;
-                map.insert(symbol, price * amount);
+                map.insert(symbol, price);
             }
         }
 
