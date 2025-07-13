@@ -7,18 +7,40 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use std::time::Duration;
 
-use crate::api::pyth::spawn_price_stream;
+use crate::api::pyth::{get_price_stream_from_pyth, get_pyth_feed_id, spawn_price_stream};
 use crate::get::get_price;
 type SharedPriceMap = Arc<tokio::sync::Mutex<HashMap<String, f64>>>;
 type Portfolio = HashMap<String, HashMap<String, f64>>;
 
-pub async fn stream(cycle: u64, portfolio: Portfolio) {
+pub async fn stream(cycle: u64, portfolio: Portfolio, target_forex: &str) {
     let prices: SharedPriceMap = Arc::new(Mutex::new(HashMap::new()));
 
     let lazy_prices = prices.clone();
     let polling_prices = prices.clone();
     let portfolio_clone_for_lazy = portfolio.clone();
     let portfolio_clone_for_polling = portfolio.clone();
+
+    // 啟動匯率價格流
+    let forex_symbol = "USD/".to_owned() + &target_forex.to_string(); // 擁有所有權
+    println!("訂閱匯率: {}", forex_symbol);
+    let id = get_pyth_feed_id(&forex_symbol, "Forex").await;
+    let prices_clone = prices.clone();
+    let forex_symbol_for_error = forex_symbol.clone();
+
+    tokio::spawn(async move {
+        if let Err(e) = get_price_stream_from_pyth(&id, move |price| {
+            let prices = prices_clone.clone();
+            let forex_symbol = forex_symbol.clone();
+
+            tokio::spawn(async move {
+                let mut map = prices.lock().await;
+                map.insert(forex_symbol.clone(), price);
+            });
+        }).await {
+            eprintln!("無法訂閱匯率 {} 的價格: {}", forex_symbol_for_error, e);
+        }
+    });
+
 
     // 啟動 lazy_stream
     tokio::spawn(async move {

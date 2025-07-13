@@ -12,6 +12,6 @@ async fn main() {
     let portfolio = read_portfolio(portfolio_path).unwrap();
 
     let target_forex_path = "config/target_forex.toml";
-    let target_forex = config::read_target_forex(target_forex_path).unwrap();
-    stream::stream(5, portfolio).await;
+    let target_forex: &str = &config::read_target_forex(target_forex_path).unwrap();
+    stream::stream(5, portfolio, &target_forex).await;
 }
