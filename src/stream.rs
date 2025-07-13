@@ -26,11 +26,12 @@ pub async fn stream(cycle: u64, portfolio: Portfolio, target_forex: &str) {
     let id = get_pyth_feed_id(&forex_symbol, "Forex").await;
     let prices_clone = prices.clone();
     let forex_symbol_for_error = forex_symbol.clone();
+    let forex_symbol_for_spawn = forex_symbol.clone();
 
     tokio::spawn(async move {
         if let Err(e) = get_price_stream_from_pyth(&id, move |price| {
             let prices = prices_clone.clone();
-            let forex_symbol = forex_symbol.clone();
+            let forex_symbol = forex_symbol_for_spawn.clone();
 
             tokio::spawn(async move {
                 let mut map = prices.lock().await;
@@ -81,9 +82,18 @@ pub async fn stream(cycle: u64, portfolio: Portfolio, target_forex: &str) {
         }
 
         println!(
-            "\n{}",
-            format!("總資產 (USD)：${:.2}", total_value).bold().green()
+            "{}",
+            format!("總資產 (USD): ${:.2}", total_value).bold().green()
         );
+
+        let forex_price = map.get(&forex_symbol).copied().unwrap_or(1.0);
+        let converted_value = total_value * forex_price;
+
+        println!(
+            "{}",
+            format!("總資產 ({}): ${:.2}", target_forex, converted_value).bold().green()
+        );
+
 
         tokio::time::sleep(Duration::from_secs(1)).await;
     }
