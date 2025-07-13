@@ -57,19 +57,18 @@ target = "TWD"
 
 ### Progress
 
-- [x] Fetch stock prices
-- [x] Fetch ETF prices
-- [x] Fetch crypto prices
-- [x] Fetch forex prices
-- [x] Calculate total portfolio value in USD
+- [X] Fetch stock prices
+- [X] Fetch ETF prices
+- [X] Fetch crypto prices
+- [X] Fetch forex prices
+- [X] Calculate total portfolio value in USD
 - [ ] target forex calculation
-
-- [x] alpha_vantage API
-- [x] binance API
-- [x] exchange_rate API
-- [ ] pyth(pyth network) API
-- [x] redstone API
-- [x] yahoo finance API
+- [X] alpha_vantage API
+- [X] binance API
+- [X] exchange_rate API
+- [X] pyth(pyth network) API
+- [X] redstone API
+- [X] yahoo finance API
 - [ ] TWSE API
 
 ## Stats
