@@ -80,9 +80,27 @@ pub async fn stream(cycle: u64, portfolio: Portfolio, target_forex: &str) {
         }
 
         if let Some(forex_items) = portfolio.get("Forex") {
-            if let Some(usd_amount) = forex_items.get("USD") {
-                println!("USD: ${:.2} x {:.4} = ${:.2}", 1.0, usd_amount, usd_amount);
-                total_value += usd_amount;
+            for (currency, amount) in forex_items {
+                println!("{currency}: ${:.2} x {:.4} = ${:.2}", 1.0, amount, amount);
+                // 只有 USD 要直接加到 total_value
+                if currency == "USD" {
+                    total_value += amount;
+                } else { // 其他貨幣先換算成 USD
+                    if let Some(forex_price) = map.get(&("USD/".to_owned() + currency)) {
+                        let converted_value = amount / forex_price;
+                        println!(
+                            "{}",
+                            format!("(換算成 USD): ${:.2} x {:.4} = ${:.2}", forex_price, amount, converted_value)
+                                .dimmed()
+                        );
+                        total_value += converted_value;
+                    } else {
+                        println!(
+                            "{}",
+                            format!("無法取得 {} 的匯率價格", currency).red()
+                        );
+                    }
+                }
             }
         }
 
