@@ -67,18 +67,23 @@ pub async fn stream(cycle: u64, portfolio: Portfolio, target_forex: &str) {
         let map = prices.lock().await;
         let mut total_value = 0.0;
 
-        for (symbol, value) in map.iter() {
-            // 從 portfolio 找到該 symbol 的持有數量
-            let mut amount = 1.0;
-            for items in portfolio.values() {
-                if let Some(a) = items.get(symbol) {
-                    amount = *a;
-                    break;
+        // 處理非外匯資產
+        for (category, items) in &portfolio {
+            if category == "Forex" { continue; }
+            for (symbol, amount) in items {
+                if let Some(price) = map.get(symbol) {
+                    let asset_value = price * amount;
+                    println!("{symbol}: ${:.2} x {:.4} = ${:.2}", price, amount, asset_value);
+                    total_value += asset_value;
                 }
             }
-            let asset_value = value * amount;
-            println!("{symbol}: ${:.2} x {:.4} = ${:.2}", value, amount, asset_value);
-            total_value += asset_value;
+        }
+
+        if let Some(forex_items) = portfolio.get("Forex") {
+            if let Some(usd_amount) = forex_items.get("USD") {
+                println!("USD: ${:.2} x {:.4} = ${:.2}", 1.0, usd_amount, usd_amount);
+                total_value += usd_amount;
+            }
         }
 
         println!(
@@ -86,14 +91,14 @@ pub async fn stream(cycle: u64, portfolio: Portfolio, target_forex: &str) {
             format!("總資產 (USD): ${:.2}", total_value).bold().green()
         );
 
-        let forex_price = map.get(&forex_symbol).copied().unwrap_or(1.0);
-        let converted_value = total_value * forex_price;
-
-        println!(
-            "{}",
-            format!("總資產 ({}): ${:.2}", target_forex, converted_value).bold().green()
-        );
-
+        // 換算成目標幣別
+        if let Some(forex_price) = map.get(&forex_symbol) {
+            let converted_value = total_value * forex_price;
+            println!(
+                "{}",
+                format!("總資產 ({}): ${:.2}", target_forex, converted_value).bold().green()
+            );
+        }
 
         tokio::time::sleep(Duration::from_secs(1)).await;
     }
