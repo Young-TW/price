@@ -70,11 +70,30 @@ pub async fn stream(cycle: u64, portfolio: Portfolio, target_forex: &str) {
         // 處理非外匯資產
         for (category, items) in &portfolio {
             if category == "Forex" { continue; }
-            for (symbol, amount) in items {
-                if let Some(price) = map.get(symbol) {
-                    let asset_value = price * amount;
-                    println!("{symbol}: ${:.2} x {:.4} = ${:.2}", price, amount, asset_value);
-                    total_value += asset_value;
+            if category == "TW-Stock" || category == "TW-ETF" {
+                for (symbol, amount) in items {
+                    if let Some(price) = map.get(symbol) {
+                        let asset_value = price * amount;
+                        println!("{symbol}: NT${:.2} x {:.4} = NT${:.2}", price, amount, asset_value);
+                        if let Some(rate) = map.get("USD/TWD") {
+                            println!(
+                                "{}",
+                                format!("(換算成 USD): ${:.2} / {:.4} = ${:.2}", asset_value, rate, asset_value / rate)
+                                    .dimmed()
+                            );
+                            total_value += asset_value / rate;
+                        } else {
+                            println!("{}", "[警告] 尚未取得 USD/TWD 匯率，無法換算台股資產".yellow());
+                        }
+                    }
+                }
+            } else {
+                for (symbol, amount) in items {
+                    if let Some(price) = map.get(symbol) {
+                        let asset_value = price * amount;
+                        println!("{symbol}: ${:.2} x {:.4} = ${:.2}", price, amount, asset_value);
+                        total_value += asset_value;
+                    }
                 }
             }
         }
