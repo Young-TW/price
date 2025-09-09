@@ -90,7 +90,7 @@ pub async fn stream(cycle: u64, portfolio: Portfolio, target_forex: &str) {
                         let converted_value = amount / forex_price;
                         println!(
                             "{}",
-                            format!("(換算成 USD): ${:.2} x {:.4} = ${:.2}", forex_price, amount, converted_value)
+                            format!("(換算成 USD): ${:.2} / {:.4} = ${:.2}", amount, forex_price, converted_value)
                                 .dimmed()
                         );
                         total_value += converted_value;
