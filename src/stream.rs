@@ -160,7 +160,12 @@ pub async fn lazy_stream(prices: SharedPriceMap, portfolio: Portfolio) {
 }
 
 pub async fn polling_stream(prices: SharedPriceMap, cycle: u64, portfolio: Portfolio) {
+    let mut interval = tokio::time::interval(Duration::from_secs(cycle));
+    // Skip the first immediate tick
+    interval.tick().await;
+
     loop {
+        interval.tick().await;
         let mut tasks = FuturesUnordered::new();
 
         for category in ["TW-Stock", "TW-ETF"] {
@@ -170,11 +175,23 @@ pub async fn polling_stream(prices: SharedPriceMap, cycle: u64, portfolio: Portf
                     let category = category.to_string();
 
                     tasks.push(async move {
-                        match get_price(&symbol, &category).await {
-                            Ok(price) => Some((symbol, _amount, price)),
-                            Err(_) => {
-                                println!("Failed to get price for {}", symbol);
-                                None
+                        let mut attempts = 0;
+                        let max_attempts = 3;
+                        let mut delay = Duration::from_secs(1);
+
+                        loop {
+                            match get_price(&symbol, &category).await {
+                                Ok(price) => break Some((symbol.clone(), _amount, price)),
+                                Err(e) => {
+                                    if attempts < max_attempts {
+                                        attempts += 1;
+                                        tokio::time::sleep(delay).await;
+                                        delay *= 2;
+                                    } else {
+                                        println!("Failed to get price for {}: {}", symbol, e);
+                                        break None;
+                                    }
+                                }
                             }
                         }
                     });
@@ -188,7 +205,5 @@ pub async fn polling_stream(prices: SharedPriceMap, cycle: u64, portfolio: Portf
                 map.insert(symbol, price);
             }
         }
-
-        tokio::time::sleep(Duration::from_secs(cycle)).await;
     }
 }
