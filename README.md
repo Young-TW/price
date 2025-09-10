@@ -73,7 +73,7 @@ target = "TWD"
 - [X] pyth(pyth network) API
 - [X] redstone API
 - [X] yahoo finance API
-- [ ] TWSE API
+- [x] TWSE API
 
 ## Stats
 
