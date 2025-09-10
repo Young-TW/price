@@ -14,13 +14,13 @@ struct AlphaVantageResponse {
     global_quote: Option<GlobalQuote>,
 }
 
-/// Alpha Vantage 免費帳號：每分鐘 5 次，每天 500 次
+/// Alpha Vantage free account: 5 requests per minute, 500 requests per day
 pub async fn get_price_from_alpha_vantage(symbol: &str) -> Result<f64, String> {
     let api_keys = read_api_keys("config/api_key.toml")
-        .map_err(|e| format!("[AlphaVantage] 讀取 API 金鑰失敗：{}", e))?;
+        .map_err(|e| format!("[AlphaVantage] Failed to read API key: {}", e))?;
     let api_key = api_keys
         .get("alpha_vantage_api_key")
-        .ok_or_else(|| "[AlphaVantage] 找不到 Alpha Vantage API 金鑰".to_string())?;
+        .ok_or_else(|| "[AlphaVantage] Alpha Vantage API key not found".to_string())?;
     let url = format!(
         "https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol={}&apikey={}",
         symbol, api_key
@@ -38,10 +38,10 @@ pub async fn get_price_from_alpha_vantage(symbol: &str) -> Result<f64, String> {
         global_quote
             .price
             .parse::<f64>()
-            .map_err(|_| "無法解析價格".to_string())
+            .map_err(|_| "Failed to parse price".to_string())
     } else {
         Err(format!(
-            "無法取得價格 (可能為 API 限制或錯誤 symbol: {})",
+            "Failed to get price (possibly due to API limit or invalid symbol: {})",
             symbol
         ))
     }

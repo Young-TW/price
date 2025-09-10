@@ -9,10 +9,10 @@ struct TwseResponse {
 
 #[derive(Deserialize, Debug)]
 struct TwseStock {
-    z: String, // 最新成交價
-    a: String, // 賣一價（多個以_分隔，取第一個）
-    b: String, // 買一價（多個以_分隔，取第一個）
-    y: String, // 昨收
+    z: String, // Last traded price
+    a: String, // Ask price (multiple prices separated by "_", take the first)
+    b: String, // Bid price (multiple prices separated by "_", take the first)
+    y: String, // Previous close
 }
 
 pub async fn get_price_from_twse(symbol: &str) -> Result<f64, String> {
@@ -31,24 +31,24 @@ pub async fn get_price_from_twse(symbol: &str) -> Result<f64, String> {
         .get(&url)
         .send()
         .await
-        .map_err(|e| format!("[TWSE] 查詢 {} 價格失敗：{}", symbol, e))?;
+        .map_err(|e| format!("[TWSE] Failed to query price for {}: {}", symbol, e))?;
 
     if response.status().is_success() {
         let text = response.text().await.unwrap_or_default();
         let data: TwseResponse = serde_json::from_str(&text)
-            .map_err(|e| format!("[TWSE] 回傳 JSON 格式錯誤：{}\n{}", e, text))?;
+            .map_err(|e| format!("[TWSE] Returned JSON format error: {}\n{}", e, text))?;
         let stock = data
             .msg_array
             .get(0)
-            .ok_or("[TWSE] 找不到股票資料")?;
+            .ok_or("[TWSE] Cannot find stock data")?;
 
-        // 如果成交價不是 "-"，直接用
+        // Use last traded price if available
         if stock.z != "-" {
             stock.z
                 .parse::<f64>()
-                .map_err(|_| "[TWSE] 無法解析價格為浮點數".to_string())
+                .map_err(|_| "[TWSE] Failed to parse price as float".to_string())
         } else {
-            // 買一、賣一可能是多個價格，用 "_" 分隔，取第一個
+            // Use geometric mean of ask and bid if last traded price is unavailable
             let a1 = stock.a.split('_').next().unwrap_or("-");
             let b1 = stock.b.split('_').next().unwrap_or("-");
             let a1f = a1.parse::<f64>();
@@ -59,15 +59,15 @@ pub async fn get_price_from_twse(symbol: &str) -> Result<f64, String> {
                     Ok(geo_mean)
                 }
                 _ => {
-                    // 如果買一賣一也無法解析，改用昨收
+                    // Use previous close if ask and bid cannot be parsed
                     stock.y
                         .parse::<f64>()
-                        .map_err(|_| "[TWSE] 無法解析昨收價格為浮點數".to_string())
+                        .map_err(|_| "[TWSE] Failed to parse previous close as float".to_string())
                 }
             }
         }
     } else {
-        Err(format!("[TWSE] HTTP 錯誤碼：{}", response.status()))
+        Err(format!("[TWSE] HTTP error code: {}", response.status()))
     }
 }
 
@@ -77,10 +77,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_price_from_twse() {
-        let symbol = "2330"; // 台積電
+        let symbol = "2330"; // TSMC
         match get_price_from_twse(symbol).await {
-            Ok(price) => println!("{} 的價格是：{}", symbol, price),
-            Err(e) => eprintln!("錯誤：{}", e),
+            Ok(price) => println!("Price of {}: {}", symbol, price),
+            Err(e) => eprintln!("Error: {}", e),
         }
     }
 }

@@ -20,9 +20,9 @@ pub async fn stream(cycle: u64, portfolio: Portfolio, target_forex: &str) {
     let portfolio_clone_for_lazy = portfolio.clone();
     let portfolio_clone_for_polling = portfolio.clone();
 
-    // 啟動匯率價格流
-    let forex_symbol = "USD/".to_owned() + &target_forex.to_string(); // 擁有所有權
-    println!("訂閱匯率: {}", forex_symbol);
+    // Start forex price stream
+    let forex_symbol = "USD/".to_owned() + &target_forex.to_string();
+    println!("Subscribing to forex rate: {}", forex_symbol);
     let id = get_pyth_feed_id(&forex_symbol, "Forex").await;
     let prices_clone = prices.clone();
     let forex_symbol_for_error = forex_symbol.clone();
@@ -38,22 +38,21 @@ pub async fn stream(cycle: u64, portfolio: Portfolio, target_forex: &str) {
                 map.insert(forex_symbol.clone(), price);
             });
         }).await {
-            eprintln!("無法訂閱匯率 {} 的價格: {}", forex_symbol_for_error, e);
+            eprintln!("Failed to subscribe to forex rate {}: {}", forex_symbol_for_error, e);
         }
     });
 
-
-    // 啟動 lazy_stream
+    // Start lazy_stream
     tokio::spawn(async move {
         lazy_stream(lazy_prices, portfolio_clone_for_lazy).await;
     });
 
-    // 啟動 polling_stream
+    // Start polling_stream
     tokio::spawn(async move {
         polling_stream(polling_prices, cycle, portfolio_clone_for_polling).await;
     });
 
-    // 主 loop
+    // Main loop
     let mut stdout = stdout();
 
     loop {
@@ -67,7 +66,7 @@ pub async fn stream(cycle: u64, portfolio: Portfolio, target_forex: &str) {
         let map = prices.lock().await;
         let mut total_value = 0.0;
 
-        // 處理非外匯資產
+        // Handle non-forex assets
         for (category, items) in &portfolio {
             if category == "Forex" { continue; }
             if category == "TW-Stock" || category == "TW-ETF" {
@@ -78,12 +77,12 @@ pub async fn stream(cycle: u64, portfolio: Portfolio, target_forex: &str) {
                         if let Some(rate) = map.get("USD/TWD") {
                             println!(
                                 "{}",
-                                format!("(換算成 USD): ${:.2} / {:.4} = ${:.2}", asset_value, rate, asset_value / rate)
+                                format!("(Converted to USD): ${:.2} / {:.4} = ${:.2}", asset_value, rate, asset_value / rate)
                                     .dimmed()
                             );
                             total_value += asset_value / rate;
                         } else {
-                            println!("{}", "[警告] 尚未取得 USD/TWD 匯率，無法換算台股資產".yellow());
+                            println!("{}", "[Warning] USD/TWD rate not available, cannot convert TWD assets to USD.".yellow());
                         }
                     }
                 }
@@ -101,22 +100,22 @@ pub async fn stream(cycle: u64, portfolio: Portfolio, target_forex: &str) {
         if let Some(forex_items) = portfolio.get("Forex") {
             for (currency, amount) in forex_items {
                 println!("{currency}: ${:.2} x {:.4} = ${:.2}", 1.0, amount, amount);
-                // 只有 USD 要直接加到 total_value
+                // Only USD is added directly to total_value
                 if currency == "USD" {
                     total_value += amount;
-                } else { // 其他貨幣先換算成 USD
+                } else { // Other currencies are converted to USD first
                     if let Some(forex_price) = map.get(&("USD/".to_owned() + currency)) {
                         let converted_value = amount / forex_price;
                         println!(
                             "{}",
-                            format!("(換算成 USD): ${:.2} / {:.4} = ${:.2}", amount, forex_price, converted_value)
+                            format!("(Converted to USD): ${:.2} / {:.4} = ${:.2}", amount, forex_price, converted_value)
                                 .dimmed()
                         );
                         total_value += converted_value;
                     } else {
                         println!(
                             "{}",
-                            format!("無法取得 {} 的匯率價格", currency).red()
+                            format!("Cannot get forex rate for {}", currency).red()
                         );
                     }
                 }
@@ -125,15 +124,15 @@ pub async fn stream(cycle: u64, portfolio: Portfolio, target_forex: &str) {
 
         println!(
             "{}",
-            format!("總資產 (USD): ${:.2}", total_value).bold().green()
+            format!("Total assets (USD): ${:.2}", total_value).bold().green()
         );
 
-        // 換算成目標幣別
+        // Convert to target currency
         if let Some(forex_price) = map.get(&forex_symbol) {
             let converted_value = total_value * forex_price;
             println!(
                 "{}",
-                format!("總資產 ({}): ${:.2}", target_forex, converted_value).bold().green()
+                format!("Total assets ({}): ${:.2}", target_forex, converted_value).bold().green()
             );
         }
 
@@ -142,7 +141,7 @@ pub async fn stream(cycle: u64, portfolio: Portfolio, target_forex: &str) {
 }
 
 pub async fn lazy_stream(prices: SharedPriceMap, portfolio: Portfolio) {
-    // 定義需要處理的分類
+    // Define categories to handle
     let categories = ["Crypto", "US-Stock", "US-ETF"];
 
     for category in categories {
@@ -151,11 +150,11 @@ pub async fn lazy_stream(prices: SharedPriceMap, portfolio: Portfolio) {
                 let prices = prices.clone();
                 let symbol_owned = symbol.clone();
                 let category_owned = category.to_string();
-                // 如果需要乘上持倉量 amount，可以在這裡處理
+                // If you need to multiply by amount, handle it here
                 spawn_price_stream(&symbol_owned, &category_owned, prices.clone());
             }
         } else {
-            println!("[警告] portfolio.toml 中找不到 [{category}] 欄位");
+            println!("[Warning] [{category}] section not found in portfolio.toml");
         }
     }
 }
@@ -174,7 +173,7 @@ pub async fn polling_stream(prices: SharedPriceMap, cycle: u64, portfolio: Portf
                         match get_price(&symbol, &category).await {
                             Ok(price) => Some((symbol, _amount, price)),
                             Err(_) => {
-                                println!("無法獲取 {} 的價格", symbol);
+                                println!("Failed to get price for {}", symbol);
                                 None
                             }
                         }

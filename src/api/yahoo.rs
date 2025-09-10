@@ -23,7 +23,7 @@ struct Indicators {
 
 #[derive(Deserialize, Debug)]
 struct Quote {
-    close: Vec<Option<f64>>, // 有些時間點可能為 null
+    close: Vec<Option<f64>>, // Some time points may be null
 }
 
 pub async fn get_price_from_yahoo(symbol: &str) -> Result<f64, String> {
@@ -38,15 +38,15 @@ pub async fn get_price_from_yahoo(symbol: &str) -> Result<f64, String> {
         .map_err(|e| e.to_string())?;
 
     let response = client.get(&url).send().await.map_err(|e| {
-        format!("[Yahoo] 查詢 {} 失敗：{}", symbol, e)
+        format!("[Yahoo] Failed to query {}: {}", symbol, e)
     })?;
 
     if !response.status().is_success() {
-        return Err(format!("[Yahoo] HTTP 錯誤：{}", response.status()));
+        return Err(format!("[Yahoo] HTTP error: {}", response.status()));
     }
 
     let data: YahooChartResponse = response.json().await.map_err(|e| {
-        format!("[Yahoo] JSON 格式錯誤：{}", e)
+        format!("[Yahoo] JSON format error: {}", e)
     })?;
 
     let close = data
@@ -59,6 +59,6 @@ pub async fn get_price_from_yahoo(symbol: &str) -> Result<f64, String> {
 
     match close {
         Some(price) => Ok(price),
-        None => Err(format!("[Yahoo] 無法取得 {} 收盤價", symbol)),
+        None => Err(format!("[Yahoo] Failed to get closing price for {}", symbol)),
     }
 }

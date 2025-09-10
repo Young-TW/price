@@ -22,7 +22,7 @@ pub async fn get_price(symbol: &str, category: &str) -> Result<f64, String> {
             }
 
             return Err(format!(
-                "無法取得加密貨幣價格 (可能為 API 限制或錯誤 symbol: {})",
+                "Failed to get crypto price (possibly due to API limit or invalid symbol: {})",
                 symbol
             ));
         } */
@@ -41,7 +41,7 @@ pub async fn get_price(symbol: &str, category: &str) -> Result<f64, String> {
             }
 
             return Err(format!(
-                "無法取得美股價格 (可能為 API 限制或錯誤 symbol: {})",
+                "Failed to get US stock price (possibly due to API limit or invalid symbol: {})",
                 symbol
             ));
         }
@@ -56,11 +56,11 @@ pub async fn get_price(symbol: &str, category: &str) -> Result<f64, String> {
             }
 
             return Err(format!(
-                "無法取得台灣股票價格 (可能為 API 限制或錯誤 symbol: {})",
+                "Failed to get Taiwan stock price (possibly due to API limit or invalid symbol: {})",
                 symbol
             ));
         }
 
-        _ => Err(format!("未知的資產類別：{}", symbol)),
+        _ => Err(format!("Unknown asset category: {}", symbol)),
     }
 }

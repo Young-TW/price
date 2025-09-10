@@ -16,15 +16,15 @@ pub async fn get_price_from_binance(symbol: &str) -> Result<f64, String> {
         .map_err(|e| e.to_string())?;
 
     let response = client.get(&url).send().await.map_err(|e| {
-        format!("[Binance] 查詢 {} 價格失敗：{}", symbol, e)
+        format!("[Binance] Failed to query price for {}: {}", symbol, e)
     })?;
 
     if response.status().is_success() {
         let data: BinancePrice = response.json().await.map_err(|e| {
-            format!("[Binance] 回傳 JSON 格式錯誤：{}", e)
+            format!("[Binance] Returned JSON format error: {}", e)
         })?;
-        data.price.parse::<f64>().map_err(|_| "無法解析價格為浮點數".to_string())
+        data.price.parse::<f64>().map_err(|_| "Failed to parse price as float".to_string())
     } else {
-        Err(format!("[Binance] HTTP 錯誤碼：{}", response.status()))
+        Err(format!("[Binance] HTTP error code: {}", response.status()))
     }
 }

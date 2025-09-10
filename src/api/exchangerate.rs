@@ -12,10 +12,10 @@ struct ExchangeRateResponse {
 
 pub async fn get_rate(from: &str, to: &str) -> Result<f64, String> {
     let api_keys = read_api_keys("config/api_key.toml")
-        .map_err(|e| format!("[ExchangeRate] 讀取 API 金鑰失敗：{}", e))?;
+        .map_err(|e| format!("[ExchangeRate] Failed to read API key: {}", e))?;
     let api_key = api_keys
         .get("exchangerate_api_key")
-        .ok_or_else(|| "[ExchangeRate] 找不到 exchangerate API 金鑰".to_string())?;
+        .ok_or_else(|| "[ExchangeRate] Exchangerate API key not found".to_string())?;
     let url = format!(
         "https://v6.exchangerate-api.com/v6/{}/latest/{}",
         api_key,
@@ -28,22 +28,22 @@ pub async fn get_rate(from: &str, to: &str) -> Result<f64, String> {
         .map_err(|e| e.to_string())?;
 
     let response = client.get(&url).send().await.map_err(|e| {
-        format!("[ExchangeRate] 查詢失敗：{}", e)
+        format!("[ExchangeRate] Query failed: {}", e)
     })?;
 
     if !response.status().is_success() {
-        return Err(format!("[ExchangeRate] HTTP 錯誤：{}", response.status()));
+        return Err(format!("[ExchangeRate] HTTP error: {}", response.status()));
     }
 
     let data: ExchangeRateResponse = response.json().await.map_err(|e| {
-        format!("[ExchangeRate] JSON 格式錯誤：{}", e)
+        format!("[ExchangeRate] JSON format error: {}", e)
     })?;
 
     if data.result != "success" {
-        return Err("[ExchangeRate] 回應失敗".to_string());
+        return Err("[ExchangeRate] Response failed".to_string());
     }
 
     data.rates.get(&to.to_uppercase())
         .copied()
-        .ok_or_else(|| format!("[ExchangeRate] 找不到 {} 匯率", to))
+        .ok_or_else(|| format!("[ExchangeRate] Cannot find rate for {}", to))
 }

@@ -19,20 +19,20 @@ pub async fn get_price_from_redstone(symbol: &str) -> Result<f64, String> {
         .map_err(|e| e.to_string())?;
 
     let response = client.get(&url).send().await.map_err(|e| {
-        format!("[RedStone] 查詢 {} 價格失敗：{}", symbol, e)
+        format!("[RedStone] Failed to query price for {}: {}", symbol, e)
     })?;
 
     if response.status().is_success() {
         let data: Vec<RedstonePrice> = response.json().await.map_err(|e| {
-            format!("[RedStone] 回傳 JSON 格式錯誤：{}", e)
+            format!("[RedStone] Returned JSON format error: {}", e)
         })?;
 
         if let Some(price_data) = data.get(0) {
             Ok(price_data.value)
         } else {
-            Err(format!("[RedStone] 沒有取得 {} 的價格資料", symbol))
+            Err(format!("[RedStone] No price data found for {}", symbol))
         }
     } else {
-        Err(format!("[RedStone] HTTP 錯誤碼：{}", response.status()))
+        Err(format!("[RedStone] HTTP error code: {}", response.status()))
     }
 }

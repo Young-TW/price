@@ -39,7 +39,7 @@ impl PriceContainer for HashMap<String, f64> {
 ///
 /// # 範例
 /// pyth_stream::subscribe_price_stream("0xe62d...", |price| println!("價格: {}", price)).await;
-pub async fn get_price_stream_from_pyth<F>(id: &str, mut on_price: F) -> Result<(), Box<dyn Error>>
+pub async fn get_price_stream_from_pyth<F>(id: &str, mut on_price: F) -> Result<(), Box<dyn std::error::Error>>
 where
     F: FnMut(f64) + Send + 'static,
 {
@@ -50,7 +50,7 @@ where
     while let Some(event) = stream.next().await {
         match event {
             Ok(SSE::Event(ev)) => {
-                if let Ok(json) = serde_json::from_str::<Value>(&ev.data) {
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&ev.data) {
                     if let Some(parsed_array) = json.get("parsed").and_then(|v| v.as_array()) {
                         for entry in parsed_array {
                             if let Some(price_obj) = entry.get("price") {
@@ -68,9 +68,9 @@ where
                     }
                 }
             }
-            Ok(_) => {} // 略過 Ping/Comment
+            Ok(_) => {} // Skip Ping/Comment
             Err(e) => {
-                eprintln!("SSE 錯誤: {}", e);
+                eprintln!("SSE error: {}", e);
             }
         }
     }
@@ -80,13 +80,13 @@ where
 
 pub async fn get_pyth_feed_id(symbol: &str, category: &str) -> String {
     let target = symbol.to_uppercase();
-    let data = fs::read_to_string("src/api/data/pyth.toml").expect("無法讀取 Pyth 配置檔案");
-    let pairs: toml::Value = toml::from_str(&data).expect("無法解析 Pyth 配置檔案");
-    let feeds = pairs.get(category).expect("無法找到 feeds");
+    let data = std::fs::read_to_string("src/api/data/pyth.toml").expect("Failed to read Pyth config file");
+    let pairs: toml::Value = toml::from_str(&data).expect("Failed to parse Pyth config file");
+    let feeds = pairs.get(category).expect("Cannot find feeds");
     let feed_id = feeds
         .get(&target)
-        .unwrap_or_else(|| panic!("無法找到 feed_id, symbol = {}", symbol));
-    let raw = feed_id.as_str().expect("feed_id 應為字串");
+        .unwrap_or_else(|| panic!("Cannot find feed_id, symbol = {}", symbol));
+    let raw = feed_id.as_str().expect("feed_id should be a string");
     return raw.to_string();
 }
 
