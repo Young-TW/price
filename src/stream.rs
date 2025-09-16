@@ -136,7 +136,7 @@ pub async fn stream(cycle: u64, portfolio: Portfolio, target_forex: &str) {
             );
         }
 
-        tokio::time::sleep(Duration::from_secs(1)).await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
     }
 }
 
