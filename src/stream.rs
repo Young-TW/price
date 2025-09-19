@@ -1,6 +1,10 @@
 use colored::*;
 use crossterm::{cursor, execute, terminal};
 use futures::stream::{FuturesUnordered, StreamExt};
+use ratatui::{
+    prelude::*,
+    widgets::{Block, Paragraph, Borders},
+};
 use std::collections::HashMap;
 use std::io::stdout;
 use std::sync::Arc;
@@ -53,18 +57,19 @@ pub async fn stream(cycle: u64, portfolio: Portfolio, target_forex: &str) {
     });
 
     // Main loop
-    let mut stdout = stdout();
+    let mut terminal = Terminal::new(CrosstermBackend::new(stdout())).unwrap();
+
+    // Clear terminal once before entering the loop
+    execute!(
+        stdout(),
+        terminal::Clear(terminal::ClearType::All),
+        cursor::MoveTo(0, 0)
+    ).unwrap();
 
     loop {
-        execute!(
-            stdout,
-            terminal::Clear(terminal::ClearType::All),
-            cursor::MoveTo(0, 0)
-        )
-        .unwrap();
-
         let map = prices.lock().await;
         let mut total_value = 0.0;
+        let mut lines = vec![];
 
         // Handle non-forex assets
         for (category, items) in &portfolio {
@@ -73,16 +78,12 @@ pub async fn stream(cycle: u64, portfolio: Portfolio, target_forex: &str) {
                 for (symbol, amount) in items {
                     if let Some(price) = map.get(symbol) {
                         let asset_value = price * amount;
-                        println!("{symbol}: NT${:.2} x {:.4} = NT${:.2}", price, amount, asset_value);
+                        lines.push(format!("{symbol}: NT${:.2} x {:.4} = NT${:.2}", price, amount, asset_value));
                         if let Some(rate) = map.get("USD/TWD") {
-                            println!(
-                                "{}",
-                                format!("(Converted to USD): ${:.2} / {:.4} = ${:.2}", asset_value, rate, asset_value / rate)
-                                    .dimmed()
-                            );
+                            lines.push(format!("(Converted to USD): ${:.2} / {:.4} = ${:.2}", asset_value, rate, asset_value / rate));
                             total_value += asset_value / rate;
                         } else {
-                            println!("{}", "[Warning] USD/TWD rate not available, cannot convert TWD assets to USD.".yellow());
+                            lines.push("[Warning] USD/TWD rate not available, cannot convert TWD assets to USD.".to_string());
                         }
                     }
                 }
@@ -90,7 +91,7 @@ pub async fn stream(cycle: u64, portfolio: Portfolio, target_forex: &str) {
                 for (symbol, amount) in items {
                     if let Some(price) = map.get(symbol) {
                         let asset_value = price * amount;
-                        println!("{symbol}: ${:.2} x {:.4} = ${:.2}", price, amount, asset_value);
+                        lines.push(format!("{symbol}: ${:.2} x {:.4} = ${:.2}", price, amount, asset_value));
                         total_value += asset_value;
                     }
                 }
@@ -99,44 +100,36 @@ pub async fn stream(cycle: u64, portfolio: Portfolio, target_forex: &str) {
 
         if let Some(forex_items) = portfolio.get("Forex") {
             for (currency, amount) in forex_items {
-                println!("{currency}: ${:.2} x {:.4} = ${:.2}", 1.0, amount, amount);
-                // Only USD is added directly to total_value
+                lines.push(format!("{currency}: ${:.2} x {:.4} = ${:.2}", 1.0, amount, amount));
                 if currency == "USD" {
                     total_value += amount;
-                } else { // Other currencies are converted to USD first
+                } else {
                     if let Some(forex_price) = map.get(&("USD/".to_owned() + currency)) {
                         let converted_value = amount / forex_price;
-                        println!(
-                            "{}",
-                            format!("(Converted to USD): ${:.2} / {:.4} = ${:.2}", amount, forex_price, converted_value)
-                                .dimmed()
-                        );
+                        lines.push(format!("(Converted to USD): ${:.2} / {:.4} = ${:.2}", amount, forex_price, converted_value));
                         total_value += converted_value;
                     } else {
-                        println!(
-                            "{}",
-                            format!("Cannot get forex rate for {}", currency).red()
-                        );
+                        lines.push(format!("Cannot get forex rate for {}", currency));
                     }
                 }
             }
         }
 
-        println!(
-            "{}",
-            format!("Total assets (USD): ${:.2}", total_value).bold().green()
-        );
-
-        // Convert to target currency
-        if let Some(forex_price) = map.get(&forex_symbol) {
+        lines.push(format!("Total assets (USD): ${:.2}", total_value));
+        if let Some(forex_price) = map.get(&("USD/".to_owned() + target_forex)) {
             let converted_value = total_value * forex_price;
-            println!(
-                "{}",
-                format!("Total assets ({}): ${:.2}", target_forex, converted_value).bold().green()
-            );
+            lines.push(format!("Total assets ({}): ${:.2}", target_forex, converted_value));
         }
 
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        // 使用 ratatui 輸出
+        terminal.draw(|f| {
+            let size = f.size();
+            let block = Block::default().title("Portfolio").borders(Borders::ALL);
+            let paragraph = Paragraph::new(lines.join("\n")).block(block);
+            f.render_widget(paragraph, size);
+        }).unwrap();
+
+        tokio::time::sleep(Duration::from_millis(1000)).await;
     }
 }
 
