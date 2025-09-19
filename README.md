@@ -75,6 +75,14 @@ target = "TWD"
 - [X] yahoo finance API
 - [x] TWSE API
 
+#### Ratatui
+
+- [x] Basic layout
+- [x] Portfolio table
+- [x] Portfolio value
+- [ ] Colors
+- [ ] Charts
+
 ## Stats
 
 ![Alt](https://repobeats.axiom.co/api/embed/e5de746d303b76f2297faeda4496f3cb120c046a.svg "Repobeats analytics image")
