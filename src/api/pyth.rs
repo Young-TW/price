@@ -2,9 +2,6 @@ use eventsource_client::Client as EventSourceClient; // 避免與 reqwest::Clien
 use eventsource_client::{ClientBuilder, SSE};
 
 use futures::StreamExt;
-use serde_json::Value;
-use std::error::Error;
-use std::fs;
 use std::collections::HashMap;
 use tokio::sync::Mutex;
 use std::sync::Arc;

@@ -1,4 +1,3 @@
-use colored::*;
 use crossterm::{cursor, execute, terminal};
 use futures::stream::{FuturesUnordered, StreamExt};
 use ratatui::{
@@ -123,10 +122,10 @@ pub async fn stream(cycle: u64, portfolio: Portfolio, target_forex: &str) {
 
         // 使用 ratatui 輸出
         terminal.draw(|f| {
-            let size = f.size();
+            let area = f.area();
             let block = Block::default().title("Portfolio").borders(Borders::ALL);
             let paragraph = Paragraph::new(lines.join("\n")).block(block);
-            f.render_widget(paragraph, size);
+            f.render_widget(paragraph, area);
         }).unwrap();
 
         tokio::time::sleep(Duration::from_millis(1000)).await;

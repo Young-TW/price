@@ -6,7 +6,7 @@ struct BinancePrice {
     price: String,
 }
 
-pub async fn get_price_from_binance(symbol: &str) -> Result<f64, String> {
+pub async fn _get_price_from_binance(symbol: &str) -> Result<f64, String> {
     let pair = format!("{}USDT", symbol.to_uppercase());
     let url = format!("https://api.binance.com/api/v3/ticker/price?symbol={}", pair);
 

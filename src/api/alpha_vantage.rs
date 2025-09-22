@@ -15,7 +15,7 @@ struct AlphaVantageResponse {
 }
 
 /// Alpha Vantage free account: 5 requests per minute, 500 requests per day
-pub async fn get_price_from_alpha_vantage(symbol: &str) -> Result<f64, String> {
+pub async fn _get_price_from_alpha_vantage(symbol: &str) -> Result<f64, String> {
     let api_keys = read_api_keys("config/api_key.toml")
         .map_err(|e| format!("[AlphaVantage] Failed to read API key: {}", e))?;
     let api_key = api_keys

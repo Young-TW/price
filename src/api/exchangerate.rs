@@ -10,7 +10,7 @@ struct ExchangeRateResponse {
     rates: std::collections::HashMap<String, f64>,
 }
 
-pub async fn get_rate(from: &str, to: &str) -> Result<f64, String> {
+pub async fn _get_rate(from: &str, to: &str) -> Result<f64, String> {
     let api_keys = read_api_keys("config/api_key.toml")
         .map_err(|e| format!("[ExchangeRate] Failed to read API key: {}", e))?;
     let api_key = api_keys
