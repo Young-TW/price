@@ -1,11 +1,13 @@
-use crossterm::{cursor, execute, terminal};
+use crossterm::terminal::disable_raw_mode;
 use futures::stream::{FuturesUnordered, StreamExt};
 use ratatui::{
-    prelude::*,
     widgets::{Block, Paragraph, Borders},
 };
+use crossterm::terminal::enable_raw_mode;
+use crossterm::event::{self, Event, KeyCode};
+use ratatui::Terminal;
+use ratatui::backend::CrosstermBackend;
 use std::collections::HashMap;
-use std::io::stdout;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use std::time::Duration;
@@ -56,16 +58,28 @@ pub async fn stream(cycle: u64, portfolio: Portfolio, target_forex: &str) {
     });
 
     // Main loop
-    let mut terminal = Terminal::new(CrosstermBackend::new(stdout())).unwrap();
+    enable_raw_mode().unwrap();
 
-    // Clear terminal once before entering the loop
+    let mut terminal = Terminal::new(CrosstermBackend::new(std::io::stdout())).unwrap();
+
+    // clear terminal screen
+    use crossterm::{execute, cursor, terminal as crossterm_terminal};
     execute!(
-        stdout(),
-        terminal::Clear(terminal::ClearType::All),
+        std::io::stdout(),
+        crossterm_terminal::Clear(crossterm_terminal::ClearType::All),
         cursor::MoveTo(0, 0)
     ).unwrap();
 
     loop {
+        // check for 'q' key press to exit
+        if event::poll(Duration::from_millis(10)).unwrap() {
+            if let Event::Key(key_event) = event::read().unwrap() {
+                if key_event.code == KeyCode::Char('q') {
+                    break;
+                }
+            }
+        }
+
         let map = prices.lock().await;
         let mut total_value = 0.0;
         let mut lines = vec![];
@@ -130,6 +144,8 @@ pub async fn stream(cycle: u64, portfolio: Portfolio, target_forex: &str) {
 
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
+
+    disable_raw_mode().unwrap();
 }
 
 pub async fn lazy_stream(prices: SharedPriceMap, portfolio: Portfolio) {
