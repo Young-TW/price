@@ -3,7 +3,7 @@ use config::read_portfolio;
 mod api;
 mod config;
 mod get;
-
+mod types;
 mod stream;
 
 #[tokio::main]
