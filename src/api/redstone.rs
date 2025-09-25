@@ -36,3 +36,17 @@ pub async fn get_price_from_redstone(symbol: &str) -> Result<f64, String> {
         Err(format!("[RedStone] HTTP error code: {}", response.status()))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_get_price_from_redstone() {
+        let symbol = "BTC"; // BTC
+        match get_price_from_redstone(symbol).await {
+            Ok(price) => println!("Price of {}: {}", symbol, price),
+            Err(e) => eprintln!("Error: {}", e),
+        }
+    }
+}
