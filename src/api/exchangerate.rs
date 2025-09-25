@@ -10,7 +10,7 @@ struct ExchangeRateResponse {
     rates: std::collections::HashMap<String, f64>,
 }
 
-pub async fn _get_rate(from: &str, to: &str) -> Result<f64, String> {
+pub async fn get_rate(from: &str, to: &str) -> Result<f64, String> {
     let api_keys = read_api_keys("config/api_key.toml")
         .map_err(|e| format!("[ExchangeRate] Failed to read API key: {}", e))?;
     let api_key = api_keys
@@ -46,4 +46,19 @@ pub async fn _get_rate(from: &str, to: &str) -> Result<f64, String> {
     data.rates.get(&to.to_uppercase())
         .copied()
         .ok_or_else(|| format!("[ExchangeRate] Cannot find rate for {}", to))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_get_rate() {
+        let from = "USD";
+        let to = "EUR";
+        match get_rate(from, to).await {
+            Ok(rate) => println!("Exchange rate from {} to {}: {}", from, to, rate),
+            Err(e) => eprintln!("Error: {}", e),
+        }
+    }
 }
