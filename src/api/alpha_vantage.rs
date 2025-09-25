@@ -1,18 +1,5 @@
-use serde::Deserialize;
-
 use crate::config::read_api_keys;
-
-#[derive(Deserialize, Debug)]
-struct GlobalQuote {
-    #[serde(rename = "05. price")]
-    price: String,
-}
-
-#[derive(Deserialize, Debug)]
-struct AlphaVantageResponse {
-    #[serde(rename = "Global Quote")]
-    global_quote: Option<GlobalQuote>,
-}
+use crate::types::Price_Response;
 
 /// Alpha Vantage free account: 5 requests per minute, 500 requests per day
 pub async fn _get_price_from_alpha_vantage(symbol: &str) -> Result<f64, String> {
@@ -31,18 +18,28 @@ pub async fn _get_price_from_alpha_vantage(symbol: &str) -> Result<f64, String> 
         .build()
         .map_err(|e| e.to_string())?;
 
-    let response = client.get(&url).send().await.map_err(|e| e.to_string())?;
-    let data: AlphaVantageResponse = response.json().await.map_err(|e| e.to_string())?;
+    let resp = client.get(&url).send().await.map_err(|e| e.to_string())?;
+    let mut response: Price_Response = Price_Response {
+        price: 0.0,
+        source: "Alpha Vantage".to_string(),
+        symbol: symbol.to_string(),
+        category: "N/A".to_string(),
+        timestamp: chrono::Utc::now().to_rfc3339(),
+        error: None,
+    };
 
-    if let Some(global_quote) = data.global_quote {
-        global_quote
-            .price
-            .parse::<f64>()
-            .map_err(|_| "Failed to parse price".to_string())
-    } else {
-        Err(format!(
-            "Failed to get price (possibly due to API limit or invalid symbol: {})",
-            symbol
-        ))
-    }
+    let body = resp.text().await.map_err(|e| e.to_string())?;
+    response.price = serde_json::from_str::<serde_json::Value>(&body)
+        .map_err(|e| e.to_string())?
+        .get("Global Quote")
+        .and_then(|v| v.get("05. price"))
+        .and_then(|v| v.as_str())
+        .and_then(|s| s.parse::<f64>().ok())
+        .ok_or_else(|| {
+            format!(
+                "[AlphaVantage] Failed to get price (possibly due to API limit or invalid symbol: {})",
+                symbol
+            )
+        })?;
+    Ok(response.price)
 }
