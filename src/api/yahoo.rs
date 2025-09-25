@@ -62,3 +62,17 @@ pub async fn get_price_from_yahoo(symbol: &str) -> Result<f64, String> {
         None => Err(format!("[Yahoo] Failed to get closing price for {}", symbol)),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_get_price_from_yahoo() {
+        let symbol = "VOO"; // VOO
+        match get_price_from_yahoo(symbol).await {
+            Ok(price) => println!("Price of {}: {}", symbol, price),
+            Err(e) => eprintln!("Error: {}", e),
+        }
+    }
+}
