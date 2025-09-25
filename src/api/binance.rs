@@ -6,7 +6,7 @@ struct BinancePrice {
     price: String,
 }
 
-pub async fn _get_price_from_binance(symbol: &str) -> Result<f64, String> {
+pub async fn get_price_from_binance(symbol: &str) -> Result<f64, String> {
     let pair = format!("{}USDT", symbol.to_uppercase());
     let url = format!("https://api.binance.com/api/v3/ticker/price?symbol={}", pair);
 
@@ -26,5 +26,19 @@ pub async fn _get_price_from_binance(symbol: &str) -> Result<f64, String> {
         data.price.parse::<f64>().map_err(|_| "Failed to parse price as float".to_string())
     } else {
         Err(format!("[Binance] HTTP error code: {}", response.status()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_get_price_from_binance() {
+        let symbol = "BTC"; // BTC
+        match get_price_from_binance(symbol).await {
+            Ok(price) => println!("Price of {}: {}", symbol, price),
+            Err(e) => eprintln!("Error: {}", e),
+        }
     }
 }
