@@ -2,11 +2,8 @@ use futures::stream::{FuturesUnordered, StreamExt};
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use crossterm::{execute, cursor, terminal as crossterm_terminal, event::{self, Event, KeyCode}};
 use ratatui::{
-    widgets::{Block, Paragraph, Borders},
     Terminal,
     backend::CrosstermBackend,
-    style::{Style, Color},
-    text::{Span, Line},
 };
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -15,6 +12,7 @@ use std::time::Duration;
 
 use crate::api::pyth::{get_price_stream_from_pyth, get_pyth_feed_id, spawn_price_stream};
 use crate::get::get_price;
+use crate::tui;
 
 type SharedPriceMap = Arc<tokio::sync::Mutex<HashMap<String, f64>>>;
 type Portfolio = HashMap<String, HashMap<String, f64>>;
@@ -111,7 +109,7 @@ async fn run_display_loop(
         let (lines, total_value) = build_portfolio_display(&map, portfolio).await;
 
         // Render display
-        render_portfolio(terminal, &lines, total_value, &map, target_forex);
+        tui::render_portfolio(terminal, &lines, total_value, &map, target_forex);
 
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
@@ -171,45 +169,6 @@ async fn build_portfolio_display(
     }
 
     (lines, total_value)
-}
-
-fn render_portfolio(
-    terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
-    lines: &[String],
-    total_value: f64,
-    map: &HashMap<String, f64>,
-    target_forex: &str,
-) {
-    terminal.draw(|f| {
-        let area = f.area();
-
-        // Build display text with colored totals
-        let mut display_lines: Vec<Line> = lines
-            .iter()
-            .map(|line| Line::from(Span::raw(line.clone())))
-            .collect();
-
-        // Add colored total lines
-        display_lines.push(Line::from(Span::styled(
-            format!("Total assets (USD): ${:.2}", total_value),
-            Style::default().fg(Color::Green)
-        )));
-
-        if let Some(forex_price) = map.get(&format!("USD/{}", target_forex)) {
-            let converted_value = total_value * forex_price;
-            display_lines.push(Line::from(Span::styled(
-                format!("Total assets ({}): ${:.2}", target_forex, converted_value),
-                Style::default().fg(Color::Green)
-            )));
-        }
-
-        let block = Block::default()
-            .title("Portfolio")
-            .borders(Borders::ALL);
-        let paragraph = Paragraph::new(display_lines).block(block);
-
-        f.render_widget(paragraph, area);
-    }).unwrap();
 }
 
 pub async fn lazy_stream(prices: SharedPriceMap, portfolio: Portfolio) {
