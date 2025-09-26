@@ -1,5 +1,5 @@
 use crate::config::read_api_keys;
-use crate::types::Price_Response;
+use crate::types::PriceResponse;
 
 /// Alpha Vantage free account: 5 requests per minute, 500 requests per day
 pub async fn get_price_from_alpha_vantage(symbol: &str) -> Result<f64, String> {
@@ -19,7 +19,7 @@ pub async fn get_price_from_alpha_vantage(symbol: &str) -> Result<f64, String> {
         .map_err(|e| e.to_string())?;
 
     let resp = client.get(&url).send().await.map_err(|e| e.to_string())?;
-    let mut response: Price_Response = Price_Response {
+    let mut response: PriceResponse = PriceResponse {
         price: 0.0,
         source: "Alpha Vantage".to_string(),
         symbol: symbol.to_string(),

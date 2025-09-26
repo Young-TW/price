@@ -8,7 +8,7 @@ pub struct Portfolio(pub HashMap<String, HashMap<String, f64>>);
 pub struct ApiKeys(pub HashMap<String, String>);
 
 #[derive(Debug, Deserialize)]
-pub struct Price_Response {
+pub struct PriceResponse {
     pub price: f64,
     pub source: String,
     pub symbol: String,
