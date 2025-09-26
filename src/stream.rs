@@ -80,7 +80,7 @@ async fn start_forex_stream(prices: SharedPriceMap, forex_symbol: &str) {
 
 fn setup_terminal() -> Terminal<CrosstermBackend<std::io::Stdout>> {
     enable_raw_mode().unwrap();
-    let mut terminal = Terminal::new(CrosstermBackend::new(std::io::stdout())).unwrap();
+    let terminal = Terminal::new(CrosstermBackend::new(std::io::stdout())).unwrap();
 
     execute!(
         std::io::stdout(),
