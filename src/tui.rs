@@ -8,6 +8,7 @@ use ratatui::{
 };
 
 use std::collections::HashMap;
+use crate::types::Portfolio;
 
 pub fn render_portfolio(
     terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
@@ -15,6 +16,7 @@ pub fn render_portfolio(
     total_value: f64,
     map: &HashMap<String, f64>,
     target_forex: &str,
+    portfolio: &Portfolio,
 ) {
     terminal.draw(|f| {
         let area = f.area();
@@ -54,96 +56,72 @@ pub fn render_portfolio(
         f.render_widget(portfolio_paragraph, chunks[0]);
 
         // Lower part: Asset allocation
-        render_asset_allocation(f, chunks[1], lines, total_value);
+        render_asset_allocation(f, chunks[1], portfolio, map, total_value);
     }).unwrap();
 }
 
 fn render_asset_allocation(
     f: &mut ratatui::Frame,
     area: ratatui::layout::Rect,
-    lines: &[String],
+    portfolio: &Portfolio,
+    map: &HashMap<String, f64>,
     total_value: f64,
 ) {
-    // Calculate asset category values
+    // Calculate asset category values using Portfolio data
     let mut categories = HashMap::new();
     let colors = [Color::Blue, Color::Red, Color::Yellow, Color::Magenta, Color::Cyan, Color::Green];
 
-    // Parse each line to extract actual USD values
-    let mut i = 0;
-    while i < lines.len() {
-        let line = &lines[i];
+    // Use Portfolio items directly instead of parsing strings
+    let grouped_portfolio = portfolio.group_by_category();
+    for (category, items) in grouped_portfolio.iter() {
+        let mut category_value = 0.0;
 
-        // Skip converted lines and warnings
-        if line.contains("Converted") || line.contains("Warning") {
-            i += 1;
-            continue;
-        }
-
-        // Parse asset lines that contain "=" (actual asset holdings)
-        if line.contains("=") && (line.contains("$") || line.contains("NT$")) {
-            let parts: Vec<&str> = line.split(':').collect();
-            if parts.len() >= 2 {
-                let symbol = parts[0].trim();
-
-                // Determine category based on symbol and line content
-                let category = if line.contains("NT$") {
-                    "TW Assets"  // Taiwan stocks/ETFs
-                } else if symbol == "USD" {
-                    "Cash (USD)"       // USD cash
-                } else if symbol == "TWD" {
-                    "Cash (TWD)"       // TWD cash
-                } else if symbol.contains("USDT") || symbol.contains("ETH") || symbol.contains("SOL") ||
-                         symbol.contains("BTC") || symbol.contains("AVAX") || symbol.contains("ADA") ||
-                         symbol.contains("WBETH") {
-                    "Crypto"     // Cryptocurrencies
-                } else {
-                    "US Assets"  // US stocks/ETFs
-                };
-
-                let usd_value = if line.contains("NT$") {
-                    // For Taiwan assets, look for the converted USD value in the next line
-                    if i + 1 < lines.len() && lines[i + 1].contains("Converted to USD") {
-                        let converted_line = &lines[i + 1];
-                        if let Some(equal_pos) = converted_line.rfind('=') {
-                            let value_part = &converted_line[equal_pos + 1..].trim();
-                            if let Some(usd_value_str) = value_part.strip_prefix("$") {
-                                usd_value_str.parse::<f64>().unwrap_or(0.0)
-                            } else { 0.0 }
-                        } else { 0.0 }
-                    } else { 0.0 }
-                } else if symbol == "TWD" {
-                    // For TWD, look for the converted USD value in the next line
-                    if i + 1 < lines.len() && lines[i + 1].contains("Converted to USD") {
-                        let converted_line = &lines[i + 1];
-                        if let Some(equal_pos) = converted_line.rfind('=') {
-                            let value_part = &converted_line[equal_pos + 1..].trim();
-                            if let Some(usd_value_str) = value_part.strip_prefix("$") {
-                                usd_value_str.parse::<f64>().unwrap_or(0.0)
-                            } else { 0.0 }
-                        } else { 0.0 }
-                    } else { 0.0 }
-                } else {
-                    // For USD assets, extract the USD value directly
-                    if let Some(equal_pos) = line.rfind('=') {
-                        let value_part = &line[equal_pos + 1..].trim();
-                        if let Some(usd_value_str) = value_part.strip_prefix("$") {
-                            usd_value_str.parse::<f64>().unwrap_or(0.0)
-                        } else { 0.0 }
-                    } else { 0.0 }
-                };
-
-                if usd_value > 0.0 {
-                    // Merge TWD and USD cash into single "Cash" category
-                    let final_category = if category == "Cash (USD)" || category == "Cash (TWD)" {
-                        "Cash"
+        for item in items {
+            let usd_value = if category == "TW-Stock" || category == "TW-ETF" {
+                // Convert TWD to USD
+                if let Some(price) = map.get(&item.symbol) {
+                    let asset_value = price * item.quantity;
+                    if let Some(rate) = map.get("USD/TWD") {
+                        asset_value / rate
                     } else {
-                        category
-                    };
-                    *categories.entry(final_category).or_insert(0.0) += usd_value;
+                        0.0
+                    }
+                } else {
+                    0.0
                 }
-            }
+            } else if category == "Forex" {
+                // Handle forex conversion - forex assets don't need price lookup
+                if item.symbol == "USD" {
+                    item.quantity
+                } else {
+                    let forex_key = format!("USD/{}", item.symbol);
+                    if let Some(forex_rate) = map.get(&forex_key) {
+                        item.quantity / forex_rate
+                    } else {
+                        0.0
+                    }
+                }
+            } else {
+                // Crypto, US-Stock, US-ETF are already in USD
+                if let Some(price) = map.get(&item.symbol) {
+                    price * item.quantity
+                } else {
+                    0.0
+                }
+            };
+
+            category_value += usd_value;
         }
-        i += 1;
+
+        if category_value > 0.0 {
+            // Merge cash categories
+            let final_category = if category == "Forex" {
+                "Cash"
+            } else {
+                category.as_str()
+            };
+            *categories.entry(final_category).or_insert(0.0) += category_value;
+        }
     }
 
     // Sort categories by value (largest to smallest)

@@ -109,7 +109,7 @@ async fn run_display_loop(
         let (lines, total_value) = build_portfolio_display(&map, portfolio).await;
 
         // Render display
-        tui::render_portfolio(terminal, &lines, total_value, &map, target_forex);
+        tui::render_portfolio(terminal, &lines, total_value, &map, target_forex, portfolio);
 
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
