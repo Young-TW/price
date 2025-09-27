@@ -10,7 +10,7 @@ mod stream;
 #[tokio::main]
 async fn main() {
     let portfolio_path = "config/portfolio.toml";
-    let portfolio = read_portfolio(portfolio_path).unwrap();
+    let portfolio = read_portfolio(portfolio_path);
 
     let target_forex_path = "config/target_forex.toml";
     let target_forex: &str = &config::read_target_forex(target_forex_path).unwrap();

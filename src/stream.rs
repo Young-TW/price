@@ -13,9 +13,9 @@ use std::time::Duration;
 use crate::api::pyth::{get_price_stream_from_pyth, get_pyth_feed_id, spawn_price_stream};
 use crate::get::get_price;
 use crate::tui;
+use crate::types::Portfolio;
 
 type SharedPriceMap = Arc<tokio::sync::Mutex<HashMap<String, f64>>>;
-type Portfolio = HashMap<String, HashMap<String, f64>>;
 
 pub async fn stream(cycle: u64, portfolio: Portfolio, target_forex: &str) {
     let prices = Arc::new(Mutex::new(HashMap::new()));
@@ -43,16 +43,16 @@ async fn start_background_tasks(
 
     // Start lazy stream
     let lazy_prices = prices.clone();
-    let portfolio_clone_lazy = portfolio.clone();
+    let lazy_portfolio = portfolio.clone();
     tokio::spawn(async move {
-        lazy_stream(lazy_prices, portfolio_clone_lazy).await;
+        lazy_stream(lazy_prices, lazy_portfolio).await;
     });
 
     // Start polling stream
     let polling_prices = prices.clone();
-    let portfolio_clone_polling = portfolio.clone();
+    let polling_portfolio = portfolio.clone();
     tokio::spawn(async move {
-        polling_stream(polling_prices, cycle, portfolio_clone_polling).await;
+        polling_stream(polling_prices, cycle, polling_portfolio).await;
     });
 }
 
@@ -123,10 +123,12 @@ async fn build_portfolio_display(
     let mut total_value = 0.0;
 
     // Handle non-forex assets
-    for (category, items) in portfolio {
+    for (category, items) in portfolio.group_by_category().iter() {
         if category == "Forex" { continue; }
 
-        for (symbol, amount) in items {
+        for item in items {
+            let symbol = &item.symbol;
+            let amount = item.quantity;
             if let Some(price) = map.get(symbol) {
                 let asset_value = price * amount;
 
@@ -140,6 +142,9 @@ async fn build_portfolio_display(
                     } else {
                         lines.push("  [Warning] USD/TWD rate not available".to_string());
                     }
+                } else if category == "Crypto" || category == "US-Stock" || category == "US-ETF" {
+                    lines.push(format!("{}: ${:.2} x {:.4} = ${:.2}", symbol, price, amount, asset_value));
+                    total_value += asset_value;
                 } else {
                     lines.push(format!("{}: ${:.2} x {:.4} = ${:.2}", symbol, price, amount, asset_value));
                     total_value += asset_value;
@@ -150,19 +155,21 @@ async fn build_portfolio_display(
 
     // Handle forex assets
     if let Some(forex_items) = portfolio.get("Forex") {
-        for (currency, amount) in forex_items {
-            lines.push(format!("{}: ${:.2} x {:.4} = ${:.2}", currency, 1.0, amount, amount));
+        for item in forex_items {
+            let symbol = &item.symbol;
+            let quantity = item.quantity;
+            lines.push(format!("{}: ${:.2} x {:.4} = ${:.2}", symbol, 1.0, quantity, quantity));
 
-            if currency == "USD" {
-                total_value += amount;
+            if symbol == "USD" {
+                total_value += quantity;
             } else {
-                let forex_key = format!("USD/{}", currency);
+                let forex_key = format!("USD/{}", symbol);
                 if let Some(forex_price) = map.get(&forex_key) {
-                    let converted_value = amount / forex_price;
-                    lines.push(format!("  (Converted to USD): ${:.2} / {:.4} = ${:.2}", amount, forex_price, converted_value));
+                    let converted_value = quantity / forex_price;
+                    lines.push(format!("  (Converted to USD): ${:.2} / {:.4} = ${:.2}", quantity, forex_price, converted_value));
                     total_value += converted_value;
                 } else {
-                    lines.push(format!("  Cannot get forex rate for {}", currency));
+                    lines.push(format!("  Cannot get forex rate for {}", symbol));
                 }
             }
         }
@@ -177,9 +184,9 @@ pub async fn lazy_stream(prices: SharedPriceMap, portfolio: Portfolio) {
 
     for category in categories {
         if let Some(items) = portfolio.get(category) {
-            for (symbol, _amount) in items {
+            for item in items {
                 let prices = prices.clone();
-                let symbol_owned = symbol.clone();
+                let symbol_owned = item.symbol.clone();
                 let category_owned = category.to_string();
                 // If you need to multiply by amount, handle it here
                 spawn_price_stream(&symbol_owned, &category_owned, prices.clone());
@@ -201,8 +208,9 @@ pub async fn polling_stream(prices: SharedPriceMap, cycle: u64, portfolio: Portf
 
         for category in ["TW-Stock", "TW-ETF"] {
             if let Some(items) = portfolio.get(category) {
-                for (symbol, _amount) in items {
-                    let symbol = symbol.clone();
+                for item in items {
+                    let symbol = item.symbol.clone();
+                    let amount = item.quantity;
                     let category = category.to_string();
 
                     tasks.push(async move {
@@ -212,7 +220,7 @@ pub async fn polling_stream(prices: SharedPriceMap, cycle: u64, portfolio: Portf
 
                         loop {
                             match get_price(&symbol, &category).await {
-                                Ok(price) => break Some((symbol.clone(), _amount, price)),
+                                Ok(price) => break Some((symbol.clone(), amount, price)),
                                 Err(e) => {
                                     if attempts < max_attempts {
                                         attempts += 1;
