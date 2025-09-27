@@ -80,8 +80,8 @@ target = "TWD"
 - [x] Basic layout
 - [x] Portfolio table
 - [x] Portfolio value
-- [ ] Colors
-- [ ] Charts
+- [x] Colors
+- [x] Charts
 
 ## Stats
 
