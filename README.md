@@ -2,6 +2,8 @@
 
 This is a program that calculates the price of all your stocks/ETFs/cryptos in your portfolio.
 
+![CI/CD](https://github.com/Young-TW/price/actions/workflows/rust.yml/badge.svg)
+
 ## Features
 
 - Get your total portfolio value in any currency
