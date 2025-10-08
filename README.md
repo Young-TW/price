@@ -7,6 +7,10 @@ This is a program that calculates the price of all your stocks/ETFs/cryptos in y
 ## Features
 
 - Get your total portfolio value in any currency
+- Real-time price streaming for crypto and forex
+- Multiple data sources with fallback support
+- Terminal UI with asset allocation visualization
+- Support for Taiwan, US stocks/ETFs and cryptocurrencies
 
 ## Usage
 
