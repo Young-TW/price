@@ -21,21 +21,21 @@ This toml file is used to store your portfolio. You can add as many assets as yo
 amd = 10
 
 [US-ETF]
-QQQ = 20
+QQQ = 2
 
 [TW-Stock]
 2330 = 10
 
 [TW-ETF]
-0050 = 20
+0050 = 200
 
 [Crypto]
 eth = 0.5
 sol = 0.5
 
 [Forex]
-usd = 100
-twd = 10000
+USD = 100
+TWD = 10000
 ```
 
 `config/api_key.toml` optional
@@ -56,6 +56,10 @@ Default is USD.
 ```toml
 target = "TWD"
 ```
+
+## Demo
+
+![demo](./assets/demo.png)
 
 ## Development
 
