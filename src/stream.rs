@@ -113,6 +113,9 @@ async fn run_display_loop(
 
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
+
+    // Clear terminal on exit
+    terminal.clear().unwrap();
 }
 
 async fn build_portfolio_display(
