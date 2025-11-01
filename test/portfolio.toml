@@ -1,0 +1,19 @@
+[US-Stock]
+amd = 10
+
+[US-ETF]
+QQQ = 2
+
+[TW-Stock]
+2330 = 10
+
+[TW-ETF]
+0050 = 200
+
+[Crypto]
+eth = 0.5
+sol = 0.5
+
+[Forex]
+USD = 100
+TWD = 10000

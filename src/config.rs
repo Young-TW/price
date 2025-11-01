@@ -24,3 +24,30 @@ pub fn read_target_forex(path: &str) -> Result<String, String> {
         .map(String::from)
         .ok_or_else(|| "Target field not found".to_string())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn test_read_portfolio() {
+        let portfolio = read_portfolio("test/portfolio.toml");
+        assert!(portfolio.get("US-Stock").is_some());
+        assert!(portfolio.get("US-ETF").is_some());
+        assert!(portfolio.get("TW-Stock").is_some());
+        assert!(portfolio.get("TW-ETF").is_some());
+        assert!(portfolio.get("Crypto").is_some());
+        assert!(portfolio.get("Forex").is_some());
+    }
+
+    #[test]
+    fn test_read_api_keys() {
+        let api_keys = read_api_keys("test/api_key.toml").unwrap();
+        assert!(api_keys.contains_key("alpha_vantage_api_key"));
+    }
+
+    #[test]
+    fn test_read_target_forex() {
+        let target = read_target_forex("test/target_forex.toml").unwrap();
+        assert_eq!(target, "TWD");
+    }
+}
