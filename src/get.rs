@@ -64,3 +64,21 @@ pub async fn get_price(symbol: &str, category: &str) -> Result<f64, String> {
         _ => Err(format!("Unknown asset category: {}", symbol)),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[tokio::test]
+    async fn test_get_price() {
+        let price = get_price("AAPL", "US-Stock").await.unwrap();
+        assert!(price > 0.0);
+        let price = get_price("QQQ", "US-ETF").await.unwrap();
+        assert!(price > 0.0);
+        let price = get_price("2330", "TW-Stock").await.unwrap();
+        assert!(price > 0.0);
+        let price = get_price("0050", "TW-ETF").await.unwrap();
+        assert!(price > 0.0);
+        let price = get_price("eth", "Crypto").await;
+        assert!(price.is_err()); // Crypto fetching is currently disabled
+    }
+}
