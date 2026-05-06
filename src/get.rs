@@ -61,24 +61,34 @@ pub async fn get_price(symbol: &str, category: &str) -> Result<f64, String> {
             ));
         }
 
-        _ => Err(format!("Unknown asset category: {}", symbol)),
+        _ => Err(format!("Unknown asset category: {}", category)),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn live_price_tests_enabled() -> bool {
+        matches!(std::env::var("RUN_LIVE_PRICE_TESTS").as_deref(), Ok("1"))
+    }
+
     #[tokio::test]
     async fn test_get_price() {
-        let price = get_price("AAPL", "US-Stock").await.unwrap();
-        assert!(price > 0.0);
-        let price = get_price("QQQ", "US-ETF").await.unwrap();
-        assert!(price > 0.0);
-        let price = get_price("2330", "TW-Stock").await.unwrap();
-        assert!(price > 0.0);
-        let price = get_price("0050", "TW-ETF").await.unwrap();
-        assert!(price > 0.0);
+        if live_price_tests_enabled() {
+            let price = get_price("AAPL", "US-Stock").await.unwrap();
+            assert!(price > 0.0);
+            let price = get_price("QQQ", "US-ETF").await.unwrap();
+            assert!(price > 0.0);
+            let price = get_price("2330", "TW-Stock").await.unwrap();
+            assert!(price > 0.0);
+            let price = get_price("0050", "TW-ETF").await.unwrap();
+            assert!(price > 0.0);
+        }
+
         let price = get_price("eth", "Crypto").await;
         assert!(price.is_err()); // Crypto fetching is currently disabled
+        let price = get_price("AAPL", "Unknown").await;
+        assert!(price.is_err());
     }
 }
