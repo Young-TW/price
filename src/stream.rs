@@ -9,6 +9,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use std::time::Duration;
+use chrono::prelude::*;
+use chrono_tz::Asia::Taipei;
 
 use crate::api::pyth::{get_price_stream_from_pyth, get_pyth_feed_id, spawn_price_stream};
 use crate::get::get_price;
@@ -16,6 +18,26 @@ use crate::tui;
 use crate::types::Portfolio;
 
 type SharedPriceMap = Arc<tokio::sync::Mutex<HashMap<String, f64>>>;
+
+/// Check if Taiwan Stock Exchange (TWSE) market is currently open
+/// TWSE trading hours: 09:00 - 13:30 (Monday to Friday)
+fn is_twse_market_open() -> bool {
+    let now = Local::now().with_timezone(&Taipei);
+    let weekday = now.weekday();
+
+    // Only open on weekdays (Monday to Friday)
+    if !matches!(weekday, chrono::Weekday::Mon | chrono::Weekday::Tue | chrono::Weekday::Wed | chrono::Weekday::Thu | chrono::Weekday::Fri) {
+        return false;
+    }
+
+    let hour = now.hour();
+    let minute = now.minute();
+    let current_time = hour * 60 + minute; // Convert to minutes since midnight
+    let open_time = 9 * 60; // 09:00
+    let close_time = 13 * 60 + 30; // 13:30
+
+    current_time >= open_time && current_time < close_time
+}
 
 pub async fn stream(cycle: u64, portfolio: Portfolio, target_forex: &str) {
     let prices = Arc::new(Mutex::new(HashMap::new()));
@@ -207,6 +229,13 @@ pub async fn polling_stream(prices: SharedPriceMap, cycle: u64, portfolio: Portf
 
     loop {
         interval.tick().await;
+
+        // Only fetch new prices if TWSE market is open
+        // If market is closed, cached prices are used
+        if !is_twse_market_open() {
+            continue;
+        }
+
         let mut tasks = FuturesUnordered::new();
 
         for category in ["TW-Stock", "TW-ETF"] {
