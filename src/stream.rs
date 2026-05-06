@@ -147,9 +147,16 @@ async fn build_portfolio_display(
     let mut lines = vec![];
     let mut total_value = 0.0;
 
+    // Get grouped categories and sort for stable ordering
+    let mut categories: Vec<_> = portfolio.group_by_category().into_iter().collect();
+    categories.sort_by(|a, b| a.0.cmp(&b.0));
+
     // Handle non-forex assets
-    for (category, items) in portfolio.group_by_category().iter() {
+    for (category, mut items) in categories {
         if category == "Forex" { continue; }
+
+        // Sort items by symbol for stable ordering
+        items.sort_by(|a, b| a.symbol.cmp(&b.symbol));
 
         for item in items {
             let symbol = &item.symbol;
@@ -179,7 +186,10 @@ async fn build_portfolio_display(
     }
 
     // Handle forex assets
-    if let Some(forex_items) = portfolio.get("Forex") {
+    if let Some(mut forex_items) = portfolio.get("Forex") {
+        // Sort forex items by symbol for stable ordering
+        forex_items.sort_by(|a, b| a.symbol.cmp(&b.symbol));
+
         for item in forex_items {
             let symbol = &item.symbol;
             let quantity = item.quantity;
