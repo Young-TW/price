@@ -71,6 +71,42 @@ pub async fn get_price_from_twse(symbol: &str) -> Result<f64, String> {
     }
 }
 
+pub async fn get_close_price_from_twse(symbol: &str) -> Result<f64, String> {
+    let pair = format!("tse_{}.tw", symbol);
+    let url = format!(
+        "https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch={}",
+        pair
+    );
+
+    let client = Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let response = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("[TWSE] Failed to query close price for {}: {}", symbol, e))?;
+
+    if response.status().is_success() {
+        let text = response.text().await.unwrap_or_default();
+        let data: TwseResponse = serde_json::from_str(&text)
+            .map_err(|e| format!("[TWSE] Returned JSON format error: {}\n{}", e, text))?;
+        let stock = data
+            .msg_array
+            .get(0)
+            .ok_or("[TWSE] Cannot find stock data")?;
+
+        stock
+            .y
+            .parse::<f64>()
+            .map_err(|_| "[TWSE] Failed to parse previous close as float".to_string())
+    } else {
+        Err(format!("[TWSE] HTTP error code: {}", response.status()))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

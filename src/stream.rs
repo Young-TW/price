@@ -13,6 +13,7 @@ use chrono::prelude::*;
 use chrono_tz::Asia::Taipei;
 
 use crate::api::pyth::{get_price_stream_from_pyth, get_pyth_feed_id, spawn_price_stream};
+use crate::api::twse::get_close_price_from_twse;
 use crate::get::get_price;
 use crate::tui;
 use crate::types::Portfolio;
@@ -60,6 +61,8 @@ async fn start_background_tasks(
     let forex_symbol = format!("USD/{}", target_forex);
     println!("Subscribing to forex rate: {}", forex_symbol);
 
+    seed_twse_cache(prices.clone(), portfolio).await;
+
     // Start forex stream
     start_forex_stream(prices.clone(), &forex_symbol).await;
 
@@ -96,6 +99,25 @@ async fn start_forex_stream(prices: SharedPriceMap, forex_symbol: &str) {
             eprintln!("Failed to subscribe to forex rate {}: {}", forex_symbol_for_error, e);
         }
     });
+}
+
+async fn seed_twse_cache(prices: SharedPriceMap, portfolio: &Portfolio) {
+    for category in ["TW-Stock", "TW-ETF"] {
+        if let Some(items) = portfolio.get(category) {
+            for item in items {
+                let symbol = item.symbol.clone();
+                match get_close_price_from_twse(&symbol).await {
+                    Ok(price) => {
+                        let mut map = prices.lock().await;
+                        map.insert(symbol, price);
+                    }
+                    Err(e) => {
+                        println!("Failed to seed close price for {}: {}", symbol, e);
+                    }
+                }
+            }
+        }
+    }
 }
 
 fn setup_terminal() -> Terminal<CrosstermBackend<std::io::Stdout>> {
