@@ -3,6 +3,7 @@ use config::read_portfolio;
 mod api;
 mod config;
 mod get;
+mod history;
 mod tui;
 mod types;
 mod stream;

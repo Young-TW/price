@@ -1,5 +1,6 @@
 use ratatui::{
-    widgets::{Block, Paragraph, Borders, Gauge},
+    widgets::{Block, Paragraph, Borders, Axis, Chart, Dataset, GraphType},
+    symbols,
     Terminal,
     backend::CrosstermBackend,
     style::{Style, Color},
@@ -8,7 +9,27 @@ use ratatui::{
 };
 
 use std::collections::HashMap;
-use crate::types::Portfolio;
+use chrono::{TimeZone, Utc};
+use crate::history::compute_category_values;
+use crate::types::{Portfolio, PortfolioSnapshot};
+
+/// Which screen the TUI is currently showing.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum ViewMode {
+    Live,
+    History,
+}
+
+/// Stable palette shared by the allocation view and the history charts so a
+/// category keeps the same colour across screens.
+const PALETTE: [Color; 6] = [
+    Color::Blue,
+    Color::Red,
+    Color::Yellow,
+    Color::Magenta,
+    Color::Cyan,
+    Color::Green,
+];
 
 pub fn render_portfolio(
     terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
@@ -17,7 +38,14 @@ pub fn render_portfolio(
     map: &HashMap<String, f64>,
     target_forex: &str,
     portfolio: &Portfolio,
+    history: &[PortfolioSnapshot],
+    view_mode: ViewMode,
 ) {
+    if view_mode == ViewMode::History {
+        terminal.draw(|f| render_history(f, f.area(), history)).unwrap();
+        return;
+    }
+
     terminal.draw(|f| {
         let area = f.area();
 
@@ -50,7 +78,7 @@ pub fn render_portfolio(
         }
 
         let portfolio_block = Block::default()
-            .title("Portfolio")
+            .title("Portfolio (h: history  e: export csv  q: quit)")
             .borders(Borders::ALL);
         let portfolio_paragraph = Paragraph::new(display_lines).block(portfolio_block);
         f.render_widget(portfolio_paragraph, chunks[0]);
@@ -67,66 +95,13 @@ fn render_asset_allocation(
     map: &HashMap<String, f64>,
     total_value: f64,
 ) {
-    // Calculate asset category values using Portfolio data
-    let mut categories = HashMap::new();
-    let colors = [Color::Blue, Color::Red, Color::Yellow, Color::Magenta, Color::Cyan, Color::Green];
-
-    // Use Portfolio items directly instead of parsing strings
-    let grouped_portfolio = portfolio.group_by_category();
-    for (category, items) in grouped_portfolio.iter() {
-        let mut category_value = 0.0;
-
-        for item in items {
-            let usd_value = if category == "TW-Stock" || category == "TW-ETF" {
-                // Convert TWD to USD
-                if let Some(price) = map.get(&item.symbol) {
-                    let asset_value = price * item.quantity;
-                    if let Some(rate) = map.get("USD/TWD") {
-                        asset_value / rate
-                    } else {
-                        0.0
-                    }
-                } else {
-                    0.0
-                }
-            } else if category == "Forex" {
-                // Handle forex conversion - forex assets don't need price lookup
-                if item.symbol == "USD" {
-                    item.quantity
-                } else {
-                    let forex_key = format!("USD/{}", item.symbol);
-                    if let Some(forex_rate) = map.get(&forex_key) {
-                        item.quantity / forex_rate
-                    } else {
-                        0.0
-                    }
-                }
-            } else {
-                // Crypto, US-Stock, US-ETF are already in USD
-                if let Some(price) = map.get(&item.symbol) {
-                    price * item.quantity
-                } else {
-                    0.0
-                }
-            };
-
-            category_value += usd_value;
-        }
-
-        if category_value > 0.0 {
-            // Merge cash categories
-            let final_category = if category == "Forex" {
-                "Cash"
-            } else {
-                category.as_str()
-            };
-            *categories.entry(final_category).or_insert(0.0) += category_value;
-        }
-    }
+    // Calculate asset category values using the shared helper.
+    let colors = PALETTE;
+    let (categories, _total) = compute_category_values(portfolio, map);
 
     // Sort categories by value (largest to smallest)
     let mut sorted_categories: Vec<(&str, f64)> = categories.iter()
-        .map(|(k, &v)| (*k, v))
+        .map(|(k, &v)| (k.as_str(), v))
         .collect();
     sorted_categories.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
 
@@ -187,4 +162,141 @@ fn render_asset_allocation(
         let bar_paragraph = Paragraph::new(vec![combined_bar]);
         f.render_widget(bar_paragraph, bar_area);
     }
+}
+
+/// History screen: total portfolio value over time (top) and per-category
+/// allocation ratio over time (bottom).
+fn render_history(
+    f: &mut ratatui::Frame,
+    area: ratatui::layout::Rect,
+    history: &[PortfolioSnapshot],
+) {
+    if history.len() < 2 {
+        let msg = Paragraph::new(
+            "Collecting history... (need at least 2 data points)\nPress 'l' for live view, 'q' to quit",
+        )
+        .block(Block::default().title("History").borders(Borders::ALL));
+        f.render_widget(msg, area);
+        return;
+    }
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Percentage(55), Constraint::Percentage(45)])
+        .split(area);
+
+    render_total_value_chart(f, chunks[0], history);
+    render_ratio_chart(f, chunks[1], history);
+}
+
+fn date_labels(x_min: f64, x_max: f64) -> Vec<Span<'static>> {
+    let fmt = |ts: f64| {
+        Utc.timestamp_opt(ts as i64, 0)
+            .single()
+            .map(|d| d.format("%m/%d").to_string())
+            .unwrap_or_default()
+    };
+    let mid = (x_min + x_max) / 2.0;
+    vec![Span::raw(fmt(x_min)), Span::raw(fmt(mid)), Span::raw(fmt(x_max))]
+}
+
+fn render_total_value_chart(
+    f: &mut ratatui::Frame,
+    area: ratatui::layout::Rect,
+    history: &[PortfolioSnapshot],
+) {
+    let data: Vec<(f64, f64)> = history
+        .iter()
+        .map(|s| (s.timestamp as f64, s.total_value_usd))
+        .collect();
+
+    let x_min = data.first().map(|p| p.0).unwrap_or(0.0);
+    let x_max = data.last().map(|p| p.0).unwrap_or(1.0);
+    let y_max = data.iter().map(|(_, y)| *y).fold(0.0_f64, f64::max);
+    let y_hi = if y_max > 0.0 { y_max * 1.1 } else { 1.0 };
+
+    let datasets = vec![
+        Dataset::default()
+            .name("Total (USD)")
+            .marker(symbols::Marker::Braille)
+            .graph_type(GraphType::Line)
+            .style(Style::default().fg(Color::Green))
+            .data(&data),
+    ];
+
+    let chart = Chart::new(datasets)
+        .block(
+            Block::default()
+                .title("Total Value History (USD)  l: live  q: quit")
+                .borders(Borders::ALL),
+        )
+        .x_axis(Axis::default().bounds([x_min, x_max]).labels(date_labels(x_min, x_max)))
+        .y_axis(Axis::default().bounds([0.0, y_hi]).labels(vec![
+            Span::raw("$0".to_string()),
+            Span::raw(format!("${:.0}", y_hi / 2.0)),
+            Span::raw(format!("${:.0}", y_hi)),
+        ]));
+
+    f.render_widget(chart, area);
+}
+
+fn render_ratio_chart(
+    f: &mut ratatui::Frame,
+    area: ratatui::layout::Rect,
+    history: &[PortfolioSnapshot],
+) {
+    // Stable, alphabetically-ordered union of category names.
+    let mut cats: Vec<String> = history
+        .iter()
+        .flat_map(|s| s.category_values.keys().cloned())
+        .collect();
+    cats.sort();
+    cats.dedup();
+
+    let x_min = history.first().map(|s| s.timestamp as f64).unwrap_or(0.0);
+    let x_max = history.last().map(|s| s.timestamp as f64).unwrap_or(1.0);
+
+    // Build and keep the per-category point series alive for the datasets.
+    let series: Vec<(String, Vec<(f64, f64)>)> = cats
+        .iter()
+        .map(|cat| {
+            let pts: Vec<(f64, f64)> = history
+                .iter()
+                .filter(|s| s.total_value_usd > 0.0)
+                .map(|s| {
+                    let v = s.category_values.get(cat).copied().unwrap_or(0.0);
+                    (s.timestamp as f64, v / s.total_value_usd * 100.0)
+                })
+                .collect();
+            (cat.clone(), pts)
+        })
+        .collect();
+
+    let datasets: Vec<Dataset> = series
+        .iter()
+        .enumerate()
+        .map(|(i, (name, data))| {
+            Dataset::default()
+                .name(name.clone())
+                .marker(symbols::Marker::Braille)
+                .graph_type(GraphType::Line)
+                .style(Style::default().fg(PALETTE[i % PALETTE.len()]))
+                .data(data)
+        })
+        .collect();
+
+    let chart = Chart::new(datasets)
+        .block(
+            Block::default()
+                .title("Allocation Ratio History (%)")
+                .borders(Borders::ALL),
+        )
+        .x_axis(Axis::default().bounds([x_min, x_max]).labels(date_labels(x_min, x_max)))
+        .y_axis(Axis::default().bounds([0.0, 100.0]).labels(vec![
+            Span::raw("0%"),
+            Span::raw("50%"),
+            Span::raw("100%"),
+        ]));
+
+    f.render_widget(chart, area);
 }

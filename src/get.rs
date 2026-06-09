@@ -1,8 +1,9 @@
 // use crate::api::alpha_vantage::get_price_from_alpha_vantage;
 // use crate::api::binance::get_price_from_binance;
+use crate::api::pyth::{get_history_from_pyth, pyth_tv_symbol};
 use crate::api::redstone::get_price_from_redstone;
 use crate::api::twse::get_price_from_twse;
-use crate::api::yahoo::get_price_from_yahoo;
+use crate::api::yahoo::{get_history_from_yahoo, get_price_from_yahoo};
 
 pub async fn get_price(symbol: &str, category: &str) -> Result<f64, String> {
     match category {
@@ -59,6 +60,33 @@ pub async fn get_price(symbol: &str, category: &str) -> Result<f64, String> {
                 "Failed to get Taiwan stock price (possibly due to API limit or invalid symbol: {})",
                 symbol
             ));
+        }
+
+        _ => Err(format!("Unknown asset category: {}", category)),
+    }
+}
+
+/// Fetch historical daily close prices for a holding between `from` and `to`
+/// (unix epoch seconds). Pyth Benchmarks is the primary source for crypto, US
+/// equities/ETFs and forex; Taiwan equities fall back to Yahoo since Pyth does
+/// not cover them. Returns `(timestamp, close)` pairs.
+pub async fn get_history(
+    symbol: &str,
+    category: &str,
+    from: i64,
+    to: i64,
+) -> Result<Vec<(i64, f64)>, String> {
+    match category {
+        "Crypto" | "US-Stock" | "US-ETF" | "Forex" => {
+            let tv_symbol = pyth_tv_symbol(symbol, category)
+                .ok_or_else(|| format!("No Pyth symbol mapping for {} ({})", symbol, category))?;
+            get_history_from_pyth(&tv_symbol, from, to).await
+        }
+
+        "TW-Stock" | "TW-ETF" => {
+            // Pyth has no Taiwan equities; Yahoo needs the .TW suffix.
+            let yahoo_symbol = format!("{}.TW", symbol);
+            get_history_from_yahoo(&yahoo_symbol, "1y", "1d").await
         }
 
         _ => Err(format!("Unknown asset category: {}", category)),

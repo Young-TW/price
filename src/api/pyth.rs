@@ -7,6 +7,80 @@ use tokio::sync::Mutex;
 use std::sync::Arc;
 
 const BASE_URL: &str = "https://hermes.pyth.network";
+const BENCHMARKS_URL: &str = "https://benchmarks.pyth.network";
+
+/// Map a portfolio `(symbol, category)` to a Pyth Benchmarks TradingView symbol.
+/// Returns `None` for categories Pyth does not cover (e.g. Taiwan equities).
+pub fn pyth_tv_symbol(symbol: &str, category: &str) -> Option<String> {
+    let sym = symbol.to_uppercase();
+    match category {
+        "Crypto" => Some(format!("Crypto.{}/USD", sym)),
+        "US-Stock" | "US-ETF" => Some(format!("Equity.US.{}/USD", sym)),
+        // For forex we always price against USD, e.g. USD/TWD.
+        "Forex" => Some(format!("FX.USD/{}", sym)),
+        _ => None,
+    }
+}
+
+/// Fetch historical daily close prices from the Pyth Benchmarks TradingView shim.
+///
+/// `tv_symbol` is a Pyth TradingView symbol (e.g. `Equity.US.AAPL/USD`).
+/// `from`/`to` are unix epoch seconds. Returns `(timestamp, close)` pairs.
+pub async fn get_history_from_pyth(
+    tv_symbol: &str,
+    from: i64,
+    to: i64,
+) -> Result<Vec<(i64, f64)>, String> {
+    let url = format!(
+        "{}/v1/shims/tradingview/history?symbol={}&resolution=D&from={}&to={}",
+        BENCHMARKS_URL, tv_symbol, from, to
+    );
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let response = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("[Pyth] Failed to query {}: {}", tv_symbol, e))?;
+
+    if !response.status().is_success() {
+        return Err(format!("[Pyth] HTTP error: {}", response.status()));
+    }
+
+    let json: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("[Pyth] JSON format error: {}", e))?;
+
+    match json.get("s").and_then(|s| s.as_str()) {
+        Some("ok") => {}
+        other => {
+            return Err(format!(
+                "[Pyth] No history for {} (status: {:?})",
+                tv_symbol, other
+            ));
+        }
+    }
+
+    let times = json.get("t").and_then(|v| v.as_array());
+    let closes = json.get("c").and_then(|v| v.as_array());
+
+    match (times, closes) {
+        (Some(times), Some(closes)) => {
+            let series = times
+                .iter()
+                .zip(closes.iter())
+                .filter_map(|(t, c)| Some((t.as_i64()?, c.as_f64()?)))
+                .collect();
+            Ok(series)
+        }
+        _ => Err(format!("[Pyth] Malformed history response for {}", tv_symbol)),
+    }
+}
 
 pub trait PriceContainer {
     fn update(&mut self, symbol: String, price: f64);
@@ -85,6 +159,36 @@ pub async fn get_pyth_feed_id(symbol: &str, category: &str) -> String {
         .unwrap_or_else(|| panic!("Cannot find feed_id, symbol = {}", symbol));
     let raw = feed_id.as_str().expect("feed_id should be a string");
     return raw.to_string();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_pyth_tv_symbol() {
+        assert_eq!(pyth_tv_symbol("eth", "Crypto").unwrap(), "Crypto.ETH/USD");
+        assert_eq!(pyth_tv_symbol("aapl", "US-Stock").unwrap(), "Equity.US.AAPL/USD");
+        assert_eq!(pyth_tv_symbol("QQQ", "US-ETF").unwrap(), "Equity.US.QQQ/USD");
+        assert_eq!(pyth_tv_symbol("TWD", "Forex").unwrap(), "FX.USD/TWD");
+        assert!(pyth_tv_symbol("2330", "TW-Stock").is_none());
+    }
+
+    #[tokio::test]
+    async fn test_get_history_from_pyth() {
+        if !matches!(std::env::var("RUN_LIVE_PRICE_TESTS").as_deref(), Ok("1")) {
+            return;
+        }
+        let to = chrono::Utc::now().timestamp();
+        let from = to - 30 * 86_400;
+        let series = get_history_from_pyth("Equity.US.AAPL/USD", from, to)
+            .await
+            .unwrap();
+        assert!(!series.is_empty());
+        assert!(series.iter().all(|(_, c)| *c > 0.0));
+        // Timestamps should be strictly increasing.
+        assert!(series.windows(2).all(|w| w[0].0 < w[1].0));
+    }
 }
 
 pub fn spawn_price_stream<C>(

@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone)]
 pub struct Portfolio(pub Vec<PortfolioItem>);
@@ -49,6 +49,20 @@ pub struct PortfolioItem {
     pub symbol: String,
     pub category: String,
     pub quantity: f64,
+}
+
+/// A point-in-time snapshot of the portfolio, used to build historical
+/// price and allocation series. Persisted as one JSON line per snapshot.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PortfolioSnapshot {
+    /// Unix epoch seconds.
+    pub timestamp: i64,
+    /// Total portfolio value expressed in USD.
+    pub total_value_usd: f64,
+    /// Category -> USD value. Allocation ratio = value / total_value_usd.
+    pub category_values: HashMap<String, f64>,
+    /// Per-symbol price at this point in time (the historical price).
+    pub prices: HashMap<String, f64>,
 }
 
 #[derive(Debug, Deserialize)]

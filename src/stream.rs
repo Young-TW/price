@@ -5,7 +5,7 @@ use ratatui::{
     Terminal,
     backend::CrosstermBackend,
 };
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use std::time::Duration;
@@ -14,11 +14,18 @@ use chrono_tz::Asia::Taipei;
 
 use crate::api::pyth::{get_price_stream_from_pyth, get_pyth_feed_id, spawn_price_stream};
 use crate::api::twse::get_close_price_from_twse;
-use crate::get::get_price;
-use crate::tui;
-use crate::types::Portfolio;
+use crate::get::{get_history, get_price};
+use crate::history;
+use crate::tui::{self, ViewMode};
+use crate::types::{Portfolio, PortfolioSnapshot};
 
 type SharedPriceMap = Arc<tokio::sync::Mutex<HashMap<String, f64>>>;
+type SharedHistory = Arc<tokio::sync::Mutex<Vec<PortfolioSnapshot>>>;
+
+/// How often a live snapshot of the portfolio is recorded (seconds).
+const SNAPSHOT_INTERVAL_SECS: u64 = 300;
+/// How far back the historical back-fill reaches (seconds).
+const BACKFILL_WINDOW_SECS: i64 = 365 * 86_400;
 
 /// Check if Taiwan Stock Exchange (TWSE) market is currently open
 /// TWSE trading hours: 09:00 - 13:30 (Monday to Friday)
@@ -42,18 +49,20 @@ fn is_twse_market_open() -> bool {
 
 pub async fn stream(cycle: u64, portfolio: Portfolio, target_forex: &str) {
     let prices = Arc::new(Mutex::new(HashMap::new()));
+    let history: SharedHistory = Arc::new(Mutex::new(history::load_history(history::HISTORY_PATH)));
     // Start background tasks
-    start_background_tasks(&prices, &portfolio, cycle, target_forex).await;
+    start_background_tasks(&prices, &history, &portfolio, cycle, target_forex).await;
     // Setup terminal
     let mut terminal = setup_terminal();
     // Main display loop
-    run_display_loop(&mut terminal, &prices, &portfolio, target_forex).await;
+    run_display_loop(&mut terminal, &prices, &history, &portfolio, target_forex).await;
     // Cleanup
     disable_raw_mode().unwrap();
 }
 
 async fn start_background_tasks(
     prices: &SharedPriceMap,
+    history: &SharedHistory,
     portfolio: &Portfolio,
     cycle: u64,
     target_forex: &str,
@@ -79,6 +88,122 @@ async fn start_background_tasks(
     tokio::spawn(async move {
         polling_stream(polling_prices, cycle, polling_portfolio).await;
     });
+
+    // Back-fill historical daily data once at startup.
+    let backfill_history = history.clone();
+    let backfill_portfolio = portfolio.clone();
+    tokio::spawn(async move {
+        backfill_history_task(backfill_history, backfill_portfolio).await;
+    });
+
+    // Record periodic live snapshots into the history.
+    let snapshot_history = history.clone();
+    let snapshot_prices = prices.clone();
+    let snapshot_portfolio = portfolio.clone();
+    tokio::spawn(async move {
+        snapshot_recorder(snapshot_history, snapshot_prices, snapshot_portfolio).await;
+    });
+}
+
+/// Reconstruct daily historical snapshots from API back-fill using the current
+/// holdings, then merge with any existing on-disk history and persist.
+async fn backfill_history_task(history: SharedHistory, portfolio: Portfolio) {
+    let to = Utc::now().timestamp();
+    let from = to - BACKFILL_WINDOW_SECS;
+
+    // (price-map key, fetch symbol, category)
+    let mut requests: Vec<(String, String, String)> = Vec::new();
+    let mut has_tw = false;
+    let mut has_twd_forex = false;
+
+    for item in portfolio.iter() {
+        match item.category.as_str() {
+            "Forex" => {
+                if item.symbol == "USD" {
+                    continue; // USD is the base currency; no rate needed.
+                }
+                if item.symbol == "TWD" {
+                    has_twd_forex = true;
+                }
+                requests.push((
+                    format!("USD/{}", item.symbol),
+                    item.symbol.clone(),
+                    "Forex".to_string(),
+                ));
+            }
+            "TW-Stock" | "TW-ETF" => {
+                has_tw = true;
+                requests.push((item.symbol.clone(), item.symbol.clone(), item.category.clone()));
+            }
+            _ => {
+                requests.push((item.symbol.clone(), item.symbol.clone(), item.category.clone()));
+            }
+        }
+    }
+
+    // TW holdings need a USD/TWD rate even if TWD isn't held as cash.
+    if has_tw && !has_twd_forex {
+        requests.push(("USD/TWD".to_string(), "TWD".to_string(), "Forex".to_string()));
+    }
+
+    // Bucket every fetched close into a per-UTC-day price map.
+    let mut day_maps: BTreeMap<i64, HashMap<String, f64>> = BTreeMap::new();
+    for (key, symbol, category) in requests {
+        match get_history(&symbol, &category, from, to).await {
+            Ok(series) => {
+                for (ts, price) in series {
+                    let day = ts.div_euclid(86_400);
+                    day_maps.entry(day).or_default().insert(key.clone(), price);
+                }
+            }
+            Err(e) => eprintln!("[backfill] {} ({}) failed: {}", symbol, category, e),
+        }
+    }
+
+    // Rebuild a snapshot for each day using current quantities.
+    let mut backfilled = Vec::new();
+    for (day, map) in day_maps {
+        let (category_values, total) = history::compute_category_values(&portfolio, &map);
+        if total <= 0.0 {
+            continue;
+        }
+        backfilled.push(PortfolioSnapshot {
+            timestamp: day * 86_400,
+            total_value_usd: total,
+            category_values,
+            prices: map,
+        });
+    }
+
+    // Merge with existing history (existing wins per day) and persist.
+    let mut guard = history.lock().await;
+    let existing = std::mem::take(&mut *guard);
+    let merged = history::merge_snapshots(existing, backfilled);
+    if let Err(e) = history::save_all(history::HISTORY_PATH, &merged) {
+        eprintln!("[backfill] failed to save history: {}", e);
+    }
+    *guard = merged;
+}
+
+/// Append a live snapshot of the portfolio at a fixed interval.
+async fn snapshot_recorder(history: SharedHistory, prices: SharedPriceMap, portfolio: Portfolio) {
+    let mut interval = tokio::time::interval(Duration::from_secs(SNAPSHOT_INTERVAL_SECS));
+    interval.tick().await; // Skip the immediate first tick.
+
+    loop {
+        interval.tick().await;
+
+        let map = { prices.lock().await.clone() };
+        let snapshot = history::take_snapshot(&portfolio, &map);
+        if snapshot.total_value_usd <= 0.0 {
+            continue; // Skip until prices are populated.
+        }
+
+        if let Err(e) = history::append_snapshot(history::HISTORY_PATH, &snapshot) {
+            eprintln!("[snapshot] failed to persist: {}", e);
+        }
+        history.lock().await.push(snapshot);
+    }
 }
 
 async fn start_forex_stream(prices: SharedPriceMap, forex_symbol: &str) {
@@ -136,24 +261,46 @@ fn setup_terminal() -> Terminal<CrosstermBackend<std::io::Stdout>> {
 async fn run_display_loop(
     terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
     prices: &SharedPriceMap,
+    history: &SharedHistory,
     portfolio: &Portfolio,
     target_forex: &str,
 ) {
+    let mut view_mode = ViewMode::Live;
+
     loop {
-        // Check for 'q' key press to exit
+        // Handle key presses: 'q' quits, 'h'/'l' switch history/live views.
         if event::poll(Duration::from_millis(10)).unwrap() {
             if let Event::Key(key_event) = event::read().unwrap() {
-                if key_event.code == KeyCode::Char('q') {
-                    break;
+                match key_event.code {
+                    KeyCode::Char('q') => break,
+                    KeyCode::Char('h') => view_mode = ViewMode::History,
+                    KeyCode::Char('l') => view_mode = ViewMode::Live,
+                    KeyCode::Char('e') => {
+                        let snapshot = { history.lock().await.clone() };
+                        if let Err(e) = history::export_csv(&snapshot, "data/history.csv") {
+                            eprintln!("[export] {}", e);
+                        }
+                    }
+                    _ => {}
                 }
             }
         }
 
         let map = prices.lock().await;
         let (lines, total_value) = build_portfolio_display(&map, portfolio).await;
+        let history_snapshot = { history.lock().await.clone() };
 
         // Render display
-        tui::render_portfolio(terminal, &lines, total_value, &map, target_forex, portfolio);
+        tui::render_portfolio(
+            terminal,
+            &lines,
+            total_value,
+            &map,
+            target_forex,
+            portfolio,
+            &history_snapshot,
+            view_mode,
+        );
 
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
