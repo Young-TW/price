@@ -11,7 +11,13 @@ pub fn read_portfolio(path: &str) -> Portfolio {
 }
 
 pub fn read_api_keys(path: &str) -> Result<HashMap<String, String>, String> {
-    let content = fs::read_to_string(path).map_err(|e| format!("Failed to read file: {}", e))?;
+    let content = match fs::read_to_string(path) {
+        Ok(content) => content,
+        // A missing api key file is not fatal: callers that need a specific key
+        // will surface a clear "key not found" error instead.
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(HashMap::new()),
+        Err(e) => return Err(format!("Failed to read file: {}", e)),
+    };
     let keys: ApiKeys = toml::from_str(&content).map_err(|e| format!("Failed to parse TOML: {}", e))?;
     Ok(keys.0)
 }
