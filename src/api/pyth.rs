@@ -149,16 +149,22 @@ where
     Ok(())
 }
 
-pub async fn get_pyth_feed_id(symbol: &str, category: &str) -> String {
+pub async fn get_pyth_feed_id(symbol: &str, category: &str) -> Result<String, String> {
     let target = symbol.to_uppercase();
-    let data = std::fs::read_to_string("src/api/data/pyth.toml").expect("Failed to read Pyth config file");
-    let pairs: toml::Value = toml::from_str(&data).expect("Failed to parse Pyth config file");
-    let feeds = pairs.get(category).expect("Cannot find feeds");
+    let data = std::fs::read_to_string("src/api/data/pyth.toml")
+        .map_err(|e| format!("Failed to read Pyth config file: {}", e))?;
+    let pairs: toml::Value =
+        toml::from_str(&data).map_err(|e| format!("Failed to parse Pyth config file: {}", e))?;
+    let feeds = pairs
+        .get(category)
+        .ok_or_else(|| format!("No Pyth feeds for category {}", category))?;
     let feed_id = feeds
         .get(&target)
-        .unwrap_or_else(|| panic!("Cannot find feed_id, symbol = {}", symbol));
-    let raw = feed_id.as_str().expect("feed_id should be a string");
-    return raw.to_string();
+        .ok_or_else(|| format!("Cannot find feed_id, symbol = {}", symbol))?;
+    let raw = feed_id
+        .as_str()
+        .ok_or_else(|| format!("feed_id should be a string for {}", symbol))?;
+    Ok(raw.to_string())
 }
 
 #[cfg(test)]
@@ -201,7 +207,13 @@ pub fn spawn_price_stream<C>(
     let symbol = symbol.to_string();
     let category = category.to_string();
     tokio::spawn(async move {
-        let id = get_pyth_feed_id(&symbol, &category).await;
+        let id = match get_pyth_feed_id(&symbol, &category).await {
+            Ok(id) => id,
+            Err(e) => {
+                eprintln!("[pyth] no live feed for {} ({}): {}", symbol, category, e);
+                return;
+            }
+        };
         let symbol_clone = symbol.clone();
         if let Err(e) = get_price_stream_from_pyth(id.as_str(), move |price| {
             let prices = Arc::clone(&prices);

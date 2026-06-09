@@ -69,10 +69,10 @@ async fn start_background_tasks(
 ) {
     seed_twse_cache(prices.clone(), portfolio).await;
 
-    // Start forex stream. USD/USD is trivially 1.0 and has no Pyth feed, so
-    // skip subscribing when the display currency is already USD.
-    if !target_forex.eq_ignore_ascii_case("USD") {
-        let forex_symbol = format!("USD/{}", target_forex);
+    // Subscribe to every forex rate the portfolio actually depends on to be
+    // valued in USD (forex cash holdings, USD/TWD for Taiwan equities) plus the
+    // chosen display currency. USD is the base currency, so USD/USD is skipped.
+    for forex_symbol in required_forex_pairs(portfolio, target_forex) {
         println!("Subscribing to forex rate: {}", forex_symbol);
         start_forex_stream(prices.clone(), &forex_symbol).await;
     }
@@ -208,8 +208,49 @@ async fn snapshot_recorder(history: SharedHistory, prices: SharedPriceMap, portf
     }
 }
 
+/// Determine every forex pair (as `USD/{ccy}`) whose live rate is required to
+/// value the portfolio in USD and to render the display currency.
+///
+/// Dependencies:
+/// - Each non-USD Forex cash holding needs its own `USD/{ccy}` rate.
+/// - Taiwan equities (TW-Stock/TW-ETF) are priced in TWD, so they depend on
+///   `USD/TWD` even when no TWD cash is held.
+/// - The display currency needs `USD/{target}` for the converted total line.
+///
+/// USD is the base currency (`USD/USD` is trivially 1.0 and has no Pyth feed),
+/// so it is never included.
+fn required_forex_pairs(portfolio: &Portfolio, target_forex: &str) -> Vec<String> {
+    let mut currencies: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+
+    for item in portfolio.iter() {
+        match item.category.as_str() {
+            "Forex" => {
+                currencies.insert(item.symbol.to_uppercase());
+            }
+            "TW-Stock" | "TW-ETF" => {
+                currencies.insert("TWD".to_string());
+            }
+            _ => {}
+        }
+    }
+
+    currencies.insert(target_forex.to_uppercase());
+
+    currencies
+        .into_iter()
+        .filter(|ccy| ccy != "USD")
+        .map(|ccy| format!("USD/{}", ccy))
+        .collect()
+}
+
 async fn start_forex_stream(prices: SharedPriceMap, forex_symbol: &str) {
-    let id = get_pyth_feed_id(forex_symbol, "Forex").await;
+    let id = match get_pyth_feed_id(forex_symbol, "Forex").await {
+        Ok(id) => id,
+        Err(e) => {
+            eprintln!("[forex] cannot subscribe to {}: {}", forex_symbol, e);
+            return;
+        }
+    };
     let forex_symbol_clone = forex_symbol.to_string();
     let forex_symbol_for_error = forex_symbol.to_string();
 
@@ -457,5 +498,46 @@ pub async fn polling_stream(prices: SharedPriceMap, cycle: u64, portfolio: Portf
                 map.insert(symbol, price);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::PortfolioItem;
+
+    fn portfolio(items: &[(&str, &str)]) -> Portfolio {
+        Portfolio(
+            items
+                .iter()
+                .map(|(category, symbol)| PortfolioItem {
+                    symbol: symbol.to_string(),
+                    category: category.to_string(),
+                    quantity: 1.0,
+                })
+                .collect(),
+        )
+    }
+
+    #[test]
+    fn tw_equities_require_usd_twd_even_without_twd_cash() {
+        let p = portfolio(&[("TW-Stock", "2330"), ("US-Stock", "AAPL")]);
+        assert_eq!(required_forex_pairs(&p, "USD"), vec!["USD/TWD".to_string()]);
+    }
+
+    #[test]
+    fn forex_holdings_and_display_currency_are_collected_without_usd() {
+        let p = portfolio(&[("Forex", "USD"), ("Forex", "TWD"), ("US-Stock", "AAPL")]);
+        // USD is the base currency and must never appear; TWD held as cash does.
+        assert_eq!(required_forex_pairs(&p, "EUR"), vec![
+            "USD/EUR".to_string(),
+            "USD/TWD".to_string(),
+        ]);
+    }
+
+    #[test]
+    fn usd_display_currency_alone_needs_no_pairs() {
+        let p = portfolio(&[("US-Stock", "AAPL"), ("Forex", "USD")]);
+        assert!(required_forex_pairs(&p, "USD").is_empty());
     }
 }
