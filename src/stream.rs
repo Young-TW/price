@@ -67,13 +67,15 @@ async fn start_background_tasks(
     cycle: u64,
     target_forex: &str,
 ) {
-    let forex_symbol = format!("USD/{}", target_forex);
-    println!("Subscribing to forex rate: {}", forex_symbol);
-
     seed_twse_cache(prices.clone(), portfolio).await;
 
-    // Start forex stream
-    start_forex_stream(prices.clone(), &forex_symbol).await;
+    // Start forex stream. USD/USD is trivially 1.0 and has no Pyth feed, so
+    // skip subscribing when the display currency is already USD.
+    if !target_forex.eq_ignore_ascii_case("USD") {
+        let forex_symbol = format!("USD/{}", target_forex);
+        println!("Subscribing to forex rate: {}", forex_symbol);
+        start_forex_stream(prices.clone(), &forex_symbol).await;
+    }
 
     // Start lazy stream
     let lazy_prices = prices.clone();
