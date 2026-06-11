@@ -20,6 +20,17 @@ pub enum ViewMode {
     History,
 }
 
+impl ViewMode {
+    /// Switch to the other screen. Used by the single-key page toggle so the
+    /// live page (the main page) and the history page swap back and forth.
+    pub fn toggle(self) -> ViewMode {
+        match self {
+            ViewMode::Live => ViewMode::History,
+            ViewMode::History => ViewMode::Live,
+        }
+    }
+}
+
 /// Stable palette shared by the allocation view and the history charts so a
 /// category keeps the same colour across screens.
 const PALETTE: [Color; 6] = [
@@ -78,7 +89,7 @@ pub fn render_portfolio(
         }
 
         let portfolio_block = Block::default()
-            .title("Portfolio (h: history  e: export csv  q: quit)")
+            .title("Portfolio (Tab: history  e: export csv  q: quit)")
             .borders(Borders::ALL);
         let portfolio_paragraph = Paragraph::new(display_lines).block(portfolio_block);
         f.render_widget(portfolio_paragraph, chunks[0]);
@@ -173,7 +184,7 @@ fn render_history(
 ) {
     if history.len() < 2 {
         let msg = Paragraph::new(
-            "Collecting history... (need at least 2 data points)\nPress 'l' for live view, 'q' to quit",
+            "Collecting history... (need at least 2 data points)\nPress Tab for live view, 'q' to quit",
         )
         .block(Block::default().title("History").borders(Borders::ALL));
         f.render_widget(msg, area);
@@ -227,7 +238,7 @@ fn render_total_value_chart(
     let chart = Chart::new(datasets)
         .block(
             Block::default()
-                .title("Total Value History (USD)  l: live  q: quit")
+                .title("Total Value History (USD)  Tab: live  q: quit")
                 .borders(Borders::ALL),
         )
         .x_axis(Axis::default().bounds([x_min, x_max]).labels(date_labels(x_min, x_max)))

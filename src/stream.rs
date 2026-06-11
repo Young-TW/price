@@ -311,11 +311,13 @@ async fn run_display_loop(
     let mut view_mode = ViewMode::Live;
 
     loop {
-        // Handle key presses: 'q' quits, 'h'/'l' switch history/live views.
+        // Handle key presses: 'q' quits, Tab toggles between the main (live)
+        // page and the history page; 'h'/'l' remain as explicit shortcuts.
         if event::poll(Duration::from_millis(10)).unwrap() {
             if let Event::Key(key_event) = event::read().unwrap() {
                 match key_event.code {
                     KeyCode::Char('q') => break,
+                    KeyCode::Tab => view_mode = view_mode.toggle(),
                     KeyCode::Char('h') => view_mode = ViewMode::History,
                     KeyCode::Char('l') => view_mode = ViewMode::Live,
                     KeyCode::Char('e') => {
