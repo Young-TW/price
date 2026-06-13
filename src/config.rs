@@ -4,11 +4,6 @@ use toml;
 
 use crate::types::{ApiKeys, Portfolio};
 
-/// Default on-disk locations of the user's configuration files. Shared by the
-/// initial load and the hot-reload watcher so both look at the same paths.
-pub const PORTFOLIO_PATH: &str = "config/portfolio.toml";
-pub const TARGET_FOREX_PATH: &str = "config/target_forex.toml";
-
 pub fn read_portfolio(path: &str) -> Portfolio {
     let content = fs::read_to_string(path).expect("Failed to read portfolio file");
     let portfolio: Portfolio = toml::from_str(&content).expect("Failed to parse portfolio TOML");

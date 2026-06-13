@@ -2,10 +2,17 @@ use eventsource_client::Client as EventSourceClient; // 避免與 reqwest::Clien
 use eventsource_client::{ClientBuilder, SSE};
 
 use futures::StreamExt;
+use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use tokio::sync::Mutex;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+
+/// The Pyth feed-id table, compiled into the binary so no external file is
+/// needed at runtime and the TOML is parsed exactly once (not per lookup).
+static PYTH_FEEDS: Lazy<toml::Value> = Lazy::new(|| {
+    toml::from_str(include_str!("data/pyth.toml")).expect("bundled pyth.toml must be valid TOML")
+});
 
 const BASE_URL: &str = "https://hermes.pyth.network";
 const BENCHMARKS_URL: &str = "https://benchmarks.pyth.network";
@@ -150,13 +157,9 @@ where
     Ok(())
 }
 
-pub async fn get_pyth_feed_id(symbol: &str, category: &str) -> Result<String, String> {
+pub fn get_pyth_feed_id(symbol: &str, category: &str) -> Result<String, String> {
     let target = symbol.to_uppercase();
-    let data = std::fs::read_to_string("src/api/data/pyth.toml")
-        .map_err(|e| format!("Failed to read Pyth config file: {}", e))?;
-    let pairs: toml::Value =
-        toml::from_str(&data).map_err(|e| format!("Failed to parse Pyth config file: {}", e))?;
-    let feeds = pairs
+    let feeds = PYTH_FEEDS
         .get(category)
         .ok_or_else(|| format!("No Pyth feeds for category {}", category))?;
     let feed_id = feeds
@@ -263,7 +266,7 @@ pub fn spawn_price_stream<C>(
     let symbol = symbol.to_string();
     let category = category.to_string();
     tokio::spawn(async move {
-        let id = match get_pyth_feed_id(&symbol, &category).await {
+        let id = match get_pyth_feed_id(&symbol, &category) {
             Ok(id) => id,
             Err(e) => {
                 crate::log_line!("[pyth] no live feed for {} ({}): {}", symbol, category, e);

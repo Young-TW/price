@@ -3,7 +3,7 @@ use crate::types::PriceResponse;
 
 /// Alpha Vantage free account: 5 requests per minute, 500 requests per day
 pub async fn get_price_from_alpha_vantage(symbol: &str) -> Result<f64, String> {
-    let api_keys = read_api_keys("config/api_key.toml")
+    let api_keys = read_api_keys(&crate::paths::api_key_file())
         .map_err(|e| format!("[AlphaVantage] Failed to read API key: {}", e))?;
     let api_key = api_keys
         .get("alpha_vantage_api_key")

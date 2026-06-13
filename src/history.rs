@@ -7,9 +7,6 @@ use chrono::Utc;
 
 use crate::types::{Portfolio, PortfolioSnapshot};
 
-/// Default location for the persisted history (JSON-Lines, one snapshot per line).
-pub const HISTORY_PATH: &str = "data/history.jsonl";
-
 /// Compute the USD value of each portfolio category given a price map.
 ///
 /// This is the single source of truth for the "value an item in USD" logic and

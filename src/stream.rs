@@ -17,6 +17,7 @@ use crate::api::twse::get_close_price_from_twse;
 use crate::config;
 use crate::get::{get_history, get_price};
 use crate::history;
+use crate::paths;
 use crate::tui::{self, ViewMode};
 use crate::types::{Portfolio, PortfolioSnapshot};
 
@@ -59,7 +60,7 @@ fn is_twse_market_open() -> bool {
 
 pub async fn stream(cycle: u64, portfolio: Portfolio, target_forex: String) {
     let prices: SharedPriceMap = Arc::new(Mutex::new(HashMap::new()));
-    let history: SharedHistory = Arc::new(Mutex::new(history::load_history(history::HISTORY_PATH)));
+    let history: SharedHistory = Arc::new(Mutex::new(history::load_history(&paths::history_file())));
     let portfolio: SharedPortfolio = Arc::new(RwLock::new(portfolio));
     let target_forex: SharedTargetForex = Arc::new(RwLock::new(target_forex));
     let subscribed: SubscribedSet = Arc::new(Mutex::new(HashSet::new()));
@@ -196,17 +197,21 @@ async fn watch_config(
     let mut interval = tokio::time::interval(Duration::from_secs(CONFIG_POLL_SECS));
     interval.tick().await; // Skip the immediate first tick.
 
-    let mut portfolio_mtime = file_mtime(config::PORTFOLIO_PATH);
-    let mut target_mtime = file_mtime(config::TARGET_FOREX_PATH);
+    // Resolve the paths once; the env vars they derive from don't change at runtime.
+    let portfolio_path = paths::portfolio_file();
+    let target_path = paths::target_forex_file();
+
+    let mut portfolio_mtime = file_mtime(&portfolio_path);
+    let mut target_mtime = file_mtime(&target_path);
 
     loop {
         interval.tick().await;
         let mut changed = false;
 
-        let new_portfolio_mtime = file_mtime(config::PORTFOLIO_PATH);
+        let new_portfolio_mtime = file_mtime(&portfolio_path);
         if new_portfolio_mtime != portfolio_mtime {
             portfolio_mtime = new_portfolio_mtime;
-            match config::try_read_portfolio(config::PORTFOLIO_PATH) {
+            match config::try_read_portfolio(&portfolio_path) {
                 Ok(new_portfolio) => {
                     crate::log_line!("[config] portfolio.toml reloaded");
                     *portfolio.write().await = new_portfolio;
@@ -216,10 +221,10 @@ async fn watch_config(
             }
         }
 
-        let new_target_mtime = file_mtime(config::TARGET_FOREX_PATH);
+        let new_target_mtime = file_mtime(&target_path);
         if new_target_mtime != target_mtime {
             target_mtime = new_target_mtime;
-            let new_target = config::read_target_forex_or_default(config::TARGET_FOREX_PATH);
+            let new_target = config::read_target_forex_or_default(&target_path);
             crate::log_line!("[config] target_forex.toml reloaded -> {}", new_target);
             *target_forex.write().await = new_target;
             changed = true;
@@ -312,7 +317,7 @@ async fn backfill_history_task(history: SharedHistory, portfolio: Portfolio) {
     let mut guard = history.lock().await;
     let existing = std::mem::take(&mut *guard);
     let merged = history::merge_snapshots(existing, backfilled);
-    if let Err(e) = history::save_all(history::HISTORY_PATH, &merged) {
+    if let Err(e) = history::save_all(&paths::history_file(), &merged) {
         crate::log_line!("[backfill] failed to save history: {}", e);
     }
     *guard = merged;
@@ -335,7 +340,7 @@ async fn snapshot_recorder(history: SharedHistory, prices: SharedPriceMap, portf
         }
         let snapshot = history::take_snapshot(&portfolio, &map);
 
-        if let Err(e) = history::append_snapshot(history::HISTORY_PATH, &snapshot) {
+        if let Err(e) = history::append_snapshot(&paths::history_file(), &snapshot) {
             crate::log_line!("[snapshot] failed to persist: {}", e);
         }
         history.lock().await.push(snapshot);
@@ -378,7 +383,7 @@ fn required_forex_pairs(portfolio: &Portfolio, target_forex: &str) -> Vec<String
 }
 
 async fn start_forex_stream(prices: SharedPriceMap, forex_symbol: &str) {
-    let id = match get_pyth_feed_id(forex_symbol, "Forex").await {
+    let id = match get_pyth_feed_id(forex_symbol, "Forex") {
         Ok(id) => id,
         Err(e) => {
             crate::log_line!("[forex] cannot subscribe to {}: {}", forex_symbol, e);
@@ -444,7 +449,7 @@ async fn run_display_loop(
                     KeyCode::Char('l') => view_mode = ViewMode::Live,
                     KeyCode::Char('e') => {
                         let snapshot = { history.lock().await.clone() };
-                        if let Err(e) = history::export_csv(&snapshot, "data/history.csv") {
+                        if let Err(e) = history::export_csv(&snapshot, &paths::history_csv_file()) {
                             crate::log_line!("[export] {}", e);
                         }
                     }

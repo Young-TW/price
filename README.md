@@ -23,6 +23,22 @@ adding or removing holdings, or switching the target currency takes effect
 within a couple of seconds. Newly added holdings start streaming live prices
 automatically; only the one-year historical back-fill still requires a restart.
 
+### File locations
+
+By default the program reads `config/` and writes to `data/` relative to the
+current directory. For deployment outside the source tree, override these with
+environment variables (the Pyth feed table is compiled into the binary, so no
+extra files are needed):
+
+| Variable           | Default  | Controls                                     |
+|--------------------|----------|----------------------------------------------|
+| `PRICE_CONFIG_DIR` | `config` | `portfolio.toml`, `target_forex.toml`, …     |
+| `PRICE_DATA_DIR`   | `data`   | `history.jsonl`, `history.csv`, `price.log`  |
+| `PRICE_LOG`        | —        | overrides the log file path outright         |
+
+Diagnostics are written to the log file (default `data/price.log`) rather than
+the terminal, so they never disturb the TUI.
+
 ### Example
 
 `config/portfolio.toml` required

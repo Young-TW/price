@@ -6,22 +6,20 @@ use std::sync::Mutex;
 use chrono::Local;
 use once_cell::sync::OnceCell;
 
-/// Default log file location. Overridable at startup via the `PRICE_LOG`
-/// environment variable.
-pub const DEFAULT_LOG_PATH: &str = "data/price.log";
+use crate::paths;
 
 /// Process-wide log sink. `None` once initialised but unopenable, so logging
 /// degrades to a silent no-op rather than panicking or corrupting the TUI.
 static LOG: OnceCell<Option<Mutex<std::fs::File>>> = OnceCell::new();
 
-/// Open the log file for appending. Honours `PRICE_LOG` if set, otherwise uses
-/// [`DEFAULT_LOG_PATH`]. Safe to call once at startup; later calls are ignored.
+/// Open the log file for appending (see [`paths::log_file`]). Safe to call once
+/// at startup; later calls are ignored.
 ///
 /// Logs go to a file rather than stdout/stderr because the terminal is owned by
 /// the raw-mode TUI — any stray print would corrupt the display.
 pub fn init() {
     LOG.get_or_init(|| {
-        let path = std::env::var("PRICE_LOG").unwrap_or_else(|_| DEFAULT_LOG_PATH.to_string());
+        let path = paths::log_file();
 
         if let Some(parent) = Path::new(&path).parent() {
             let _ = std::fs::create_dir_all(parent);
