@@ -50,7 +50,7 @@ pub fn read_target_forex_or_default(path: &str) -> String {
     match read_target_forex(path) {
         Ok(forex) => forex,
         Err(e) => {
-            eprintln!(
+            crate::log_line!(
                 "[config] {} not usable ({}); defaulting target forex to USD",
                 path, e
             );

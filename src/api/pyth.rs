@@ -142,7 +142,7 @@ where
             }
             Ok(_) => {} // Skip Ping/Comment
             Err(e) => {
-                eprintln!("SSE error: {}", e);
+                crate::log_line!("[pyth] SSE error: {}", e);
             }
         }
     }
@@ -237,8 +237,8 @@ where
             .await;
 
             match result {
-                Ok(()) => eprintln!("[pyth] stream for {} ended; reconnecting", key),
-                Err(e) => eprintln!("[pyth] stream for {} failed: {}; reconnecting", key, e),
+                Ok(()) => crate::log_line!("[pyth] stream for {} ended; reconnecting", key),
+                Err(e) => crate::log_line!("[pyth] stream for {} failed: {}; reconnecting", key, e),
             }
         }
 
@@ -266,7 +266,7 @@ pub fn spawn_price_stream<C>(
         let id = match get_pyth_feed_id(&symbol, &category).await {
             Ok(id) => id,
             Err(e) => {
-                eprintln!("[pyth] no live feed for {} ({}): {}", symbol, category, e);
+                crate::log_line!("[pyth] no live feed for {} ({}): {}", symbol, category, e);
                 return;
             }
         };

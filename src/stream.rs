@@ -136,7 +136,7 @@ async fn ensure_subscriptions(
     // currency. USD is the base currency, so USD/USD is skipped.
     for forex_symbol in required_forex_pairs(portfolio, target_forex) {
         if mark_new(subscribed, &forex_symbol).await {
-            println!("Subscribing to forex rate: {}", forex_symbol);
+            crate::log_line!("Subscribing to forex rate: {}", forex_symbol);
             start_forex_stream(prices.clone(), &forex_symbol).await;
         }
     }
@@ -164,7 +164,7 @@ async fn ensure_subscriptions(
                             prices.lock().await.insert(item.symbol.clone(), price);
                         }
                         Err(e) => {
-                            println!("Failed to seed close price for {}: {}", item.symbol, e);
+                            crate::log_line!("Failed to seed close price for {}: {}", item.symbol, e);
                         }
                     }
                 }
@@ -208,11 +208,11 @@ async fn watch_config(
             portfolio_mtime = new_portfolio_mtime;
             match config::try_read_portfolio(config::PORTFOLIO_PATH) {
                 Ok(new_portfolio) => {
-                    println!("[config] portfolio.toml reloaded");
+                    crate::log_line!("[config] portfolio.toml reloaded");
                     *portfolio.write().await = new_portfolio;
                     changed = true;
                 }
-                Err(e) => eprintln!("[config] failed to reload portfolio.toml: {}", e),
+                Err(e) => crate::log_line!("[config] failed to reload portfolio.toml: {}", e),
             }
         }
 
@@ -220,7 +220,7 @@ async fn watch_config(
         if new_target_mtime != target_mtime {
             target_mtime = new_target_mtime;
             let new_target = config::read_target_forex_or_default(config::TARGET_FOREX_PATH);
-            println!("[config] target_forex.toml reloaded -> {}", new_target);
+            crate::log_line!("[config] target_forex.toml reloaded -> {}", new_target);
             *target_forex.write().await = new_target;
             changed = true;
         }
@@ -286,7 +286,7 @@ async fn backfill_history_task(history: SharedHistory, portfolio: Portfolio) {
                     day_maps.entry(day).or_default().insert(key.clone(), price);
                 }
             }
-            Err(e) => eprintln!("[backfill] {} ({}) failed: {}", symbol, category, e),
+            Err(e) => crate::log_line!("[backfill] {} ({}) failed: {}", symbol, category, e),
         }
     }
 
@@ -313,7 +313,7 @@ async fn backfill_history_task(history: SharedHistory, portfolio: Portfolio) {
     let existing = std::mem::take(&mut *guard);
     let merged = history::merge_snapshots(existing, backfilled);
     if let Err(e) = history::save_all(history::HISTORY_PATH, &merged) {
-        eprintln!("[backfill] failed to save history: {}", e);
+        crate::log_line!("[backfill] failed to save history: {}", e);
     }
     *guard = merged;
 }
@@ -336,7 +336,7 @@ async fn snapshot_recorder(history: SharedHistory, prices: SharedPriceMap, portf
         let snapshot = history::take_snapshot(&portfolio, &map);
 
         if let Err(e) = history::append_snapshot(history::HISTORY_PATH, &snapshot) {
-            eprintln!("[snapshot] failed to persist: {}", e);
+            crate::log_line!("[snapshot] failed to persist: {}", e);
         }
         history.lock().await.push(snapshot);
     }
@@ -381,7 +381,7 @@ async fn start_forex_stream(prices: SharedPriceMap, forex_symbol: &str) {
     let id = match get_pyth_feed_id(forex_symbol, "Forex").await {
         Ok(id) => id,
         Err(e) => {
-            eprintln!("[forex] cannot subscribe to {}: {}", forex_symbol, e);
+            crate::log_line!("[forex] cannot subscribe to {}: {}", forex_symbol, e);
             return;
         }
     };
@@ -428,7 +428,7 @@ async fn run_display_loop(
                     KeyCode::Char('e') => {
                         let snapshot = { history.lock().await.clone() };
                         if let Err(e) = history::export_csv(&snapshot, "data/history.csv") {
-                            eprintln!("[export] {}", e);
+                            crate::log_line!("[export] {}", e);
                         }
                     }
                     _ => {}
@@ -575,7 +575,7 @@ pub async fn polling_stream(prices: SharedPriceMap, cycle: u64, portfolio: Share
                                         tokio::time::sleep(delay).await;
                                         delay *= 2;
                                     } else {
-                                        println!("Failed to get price for {}: {}", symbol, e);
+                                        crate::log_line!("Failed to get price for {}: {}", symbol, e);
                                         break None;
                                     }
                                 }
