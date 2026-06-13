@@ -5,15 +5,16 @@ use ratatui::{
     Terminal,
     backend::CrosstermBackend,
 };
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 use std::time::Duration;
 use chrono::prelude::*;
 use chrono_tz::Asia::Taipei;
 
 use crate::api::pyth::{get_price_stream_from_pyth, get_pyth_feed_id, spawn_price_stream};
 use crate::api::twse::get_close_price_from_twse;
+use crate::config;
 use crate::get::{get_history, get_price};
 use crate::history;
 use crate::tui::{self, ViewMode};
@@ -21,11 +22,20 @@ use crate::types::{Portfolio, PortfolioSnapshot};
 
 type SharedPriceMap = Arc<tokio::sync::Mutex<HashMap<String, f64>>>;
 type SharedHistory = Arc<tokio::sync::Mutex<Vec<PortfolioSnapshot>>>;
+/// Portfolio and display currency are wrapped in `RwLock` so the config
+/// hot-reload watcher can swap in fresh values while reader tasks keep running.
+type SharedPortfolio = Arc<RwLock<Portfolio>>;
+type SharedTargetForex = Arc<RwLock<String>>;
+/// Keys (forex pairs and `category:symbol`) for which a price stream/seed has
+/// already been started, so reloads only subscribe to genuinely new holdings.
+type SubscribedSet = Arc<Mutex<HashSet<String>>>;
 
 /// How often a live snapshot of the portfolio is recorded (seconds).
 const SNAPSHOT_INTERVAL_SECS: u64 = 300;
 /// How far back the historical back-fill reaches (seconds).
 const BACKFILL_WINDOW_SECS: i64 = 365 * 86_400;
+/// How often the config files are checked for changes (seconds).
+const CONFIG_POLL_SECS: u64 = 2;
 
 /// Check if Taiwan Stock Exchange (TWSE) market is currently open
 /// TWSE trading hours: 09:00 - 13:30 (Monday to Friday)
@@ -47,15 +57,18 @@ fn is_twse_market_open() -> bool {
     current_time >= open_time && current_time < close_time
 }
 
-pub async fn stream(cycle: u64, portfolio: Portfolio, target_forex: &str) {
-    let prices = Arc::new(Mutex::new(HashMap::new()));
+pub async fn stream(cycle: u64, portfolio: Portfolio, target_forex: String) {
+    let prices: SharedPriceMap = Arc::new(Mutex::new(HashMap::new()));
     let history: SharedHistory = Arc::new(Mutex::new(history::load_history(history::HISTORY_PATH)));
+    let portfolio: SharedPortfolio = Arc::new(RwLock::new(portfolio));
+    let target_forex: SharedTargetForex = Arc::new(RwLock::new(target_forex));
+    let subscribed: SubscribedSet = Arc::new(Mutex::new(HashSet::new()));
     // Start background tasks
-    start_background_tasks(&prices, &history, &portfolio, cycle, target_forex).await;
+    start_background_tasks(&prices, &history, &portfolio, &target_forex, &subscribed, cycle).await;
     // Setup terminal
     let mut terminal = setup_terminal();
     // Main display loop
-    run_display_loop(&mut terminal, &prices, &history, &portfolio, target_forex).await;
+    run_display_loop(&mut terminal, &prices, &history, &portfolio, &target_forex).await;
     // Cleanup
     disable_raw_mode().unwrap();
 }
@@ -63,26 +76,17 @@ pub async fn stream(cycle: u64, portfolio: Portfolio, target_forex: &str) {
 async fn start_background_tasks(
     prices: &SharedPriceMap,
     history: &SharedHistory,
-    portfolio: &Portfolio,
+    portfolio: &SharedPortfolio,
+    target_forex: &SharedTargetForex,
+    subscribed: &SubscribedSet,
     cycle: u64,
-    target_forex: &str,
 ) {
-    seed_twse_cache(prices.clone(), portfolio).await;
-
-    // Subscribe to every forex rate the portfolio actually depends on to be
-    // valued in USD (forex cash holdings, USD/TWD for Taiwan equities) plus the
-    // chosen display currency. USD is the base currency, so USD/USD is skipped.
-    for forex_symbol in required_forex_pairs(portfolio, target_forex) {
-        println!("Subscribing to forex rate: {}", forex_symbol);
-        start_forex_stream(prices.clone(), &forex_symbol).await;
-    }
-
-    // Start lazy stream
-    let lazy_prices = prices.clone();
-    let lazy_portfolio = portfolio.clone();
-    tokio::spawn(async move {
-        lazy_stream(lazy_prices, lazy_portfolio).await;
-    });
+    // Subscribe to every price/forex stream the initial portfolio needs. Take a
+    // snapshot of the shared config first so we don't hold the lock across the
+    // network calls inside `ensure_subscriptions`.
+    let initial_portfolio = portfolio.read().await.clone();
+    let initial_target = target_forex.read().await.clone();
+    ensure_subscriptions(&initial_portfolio, &initial_target, prices, subscribed).await;
 
     // Start polling stream
     let polling_prices = prices.clone();
@@ -91,9 +95,11 @@ async fn start_background_tasks(
         polling_stream(polling_prices, cycle, polling_portfolio).await;
     });
 
-    // Back-fill historical daily data once at startup.
+    // Back-fill historical daily data once at startup, using the holdings known
+    // at launch. Symbols added later via hot-reload are not back-filled (they
+    // accumulate live snapshots instead).
     let backfill_history = history.clone();
-    let backfill_portfolio = portfolio.clone();
+    let backfill_portfolio = initial_portfolio;
     tokio::spawn(async move {
         backfill_history_task(backfill_history, backfill_portfolio).await;
     });
@@ -105,6 +111,128 @@ async fn start_background_tasks(
     tokio::spawn(async move {
         snapshot_recorder(snapshot_history, snapshot_prices, snapshot_portfolio).await;
     });
+
+    // Watch the config files and hot-reload portfolio / target currency.
+    let watch_portfolio = portfolio.clone();
+    let watch_target = target_forex.clone();
+    let watch_prices = prices.clone();
+    let watch_subscribed = subscribed.clone();
+    tokio::spawn(async move {
+        watch_config(watch_portfolio, watch_target, watch_prices, watch_subscribed).await;
+    });
+}
+
+/// Start any price/forex streams required by `portfolio` (valued in
+/// `target_forex`) that have not been started yet. Idempotent: a key is only
+/// acted on the first time it is seen, so this can be called on every reload to
+/// pick up newly added holdings without duplicating existing subscriptions.
+async fn ensure_subscriptions(
+    portfolio: &Portfolio,
+    target_forex: &str,
+    prices: &SharedPriceMap,
+    subscribed: &SubscribedSet,
+) {
+    // Forex rates needed to value the portfolio in USD plus the display
+    // currency. USD is the base currency, so USD/USD is skipped.
+    for forex_symbol in required_forex_pairs(portfolio, target_forex) {
+        if mark_new(subscribed, &forex_symbol).await {
+            println!("Subscribing to forex rate: {}", forex_symbol);
+            start_forex_stream(prices.clone(), &forex_symbol).await;
+        }
+    }
+
+    // Live crypto / US equity streams.
+    for category in ["Crypto", "US-Stock", "US-ETF"] {
+        if let Some(items) = portfolio.get(category) {
+            for item in items {
+                let key = format!("{}:{}", category, item.symbol);
+                if mark_new(subscribed, &key).await {
+                    spawn_price_stream(&item.symbol, category, prices.clone());
+                }
+            }
+        }
+    }
+
+    // Seed cached close prices for Taiwan holdings (refreshed by polling_stream).
+    for category in ["TW-Stock", "TW-ETF"] {
+        if let Some(items) = portfolio.get(category) {
+            for item in items {
+                let key = format!("{}:{}", category, item.symbol);
+                if mark_new(subscribed, &key).await {
+                    match get_close_price_from_twse(&item.symbol).await {
+                        Ok(price) => {
+                            prices.lock().await.insert(item.symbol.clone(), price);
+                        }
+                        Err(e) => {
+                            println!("Failed to seed close price for {}: {}", item.symbol, e);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Record `key` as subscribed, returning `true` only if it was not already
+/// present (i.e. this is the first time we've seen it).
+async fn mark_new(subscribed: &SubscribedSet, key: &str) -> bool {
+    subscribed.lock().await.insert(key.to_string())
+}
+
+/// Most-recent modification time of `path`, or `None` if it can't be read.
+fn file_mtime(path: &str) -> Option<std::time::SystemTime> {
+    std::fs::metadata(path).and_then(|m| m.modified()).ok()
+}
+
+/// Poll the config files and, when one changes on disk, swap the new values
+/// into the shared state and subscribe to any newly required streams. Reader
+/// tasks (display loop, polling, snapshots) observe the change automatically.
+async fn watch_config(
+    portfolio: SharedPortfolio,
+    target_forex: SharedTargetForex,
+    prices: SharedPriceMap,
+    subscribed: SubscribedSet,
+) {
+    let mut interval = tokio::time::interval(Duration::from_secs(CONFIG_POLL_SECS));
+    interval.tick().await; // Skip the immediate first tick.
+
+    let mut portfolio_mtime = file_mtime(config::PORTFOLIO_PATH);
+    let mut target_mtime = file_mtime(config::TARGET_FOREX_PATH);
+
+    loop {
+        interval.tick().await;
+        let mut changed = false;
+
+        let new_portfolio_mtime = file_mtime(config::PORTFOLIO_PATH);
+        if new_portfolio_mtime != portfolio_mtime {
+            portfolio_mtime = new_portfolio_mtime;
+            match config::try_read_portfolio(config::PORTFOLIO_PATH) {
+                Ok(new_portfolio) => {
+                    println!("[config] portfolio.toml reloaded");
+                    *portfolio.write().await = new_portfolio;
+                    changed = true;
+                }
+                Err(e) => eprintln!("[config] failed to reload portfolio.toml: {}", e),
+            }
+        }
+
+        let new_target_mtime = file_mtime(config::TARGET_FOREX_PATH);
+        if new_target_mtime != target_mtime {
+            target_mtime = new_target_mtime;
+            let new_target = config::read_target_forex_or_default(config::TARGET_FOREX_PATH);
+            println!("[config] target_forex.toml reloaded -> {}", new_target);
+            *target_forex.write().await = new_target;
+            changed = true;
+        }
+
+        if changed {
+            // Snapshot the latest config (releasing the locks) before the
+            // network calls in `ensure_subscriptions`.
+            let current_portfolio = portfolio.read().await.clone();
+            let current_target = target_forex.read().await.clone();
+            ensure_subscriptions(&current_portfolio, &current_target, &prices, &subscribed).await;
+        }
+    }
 }
 
 /// Reconstruct daily historical snapshots from API back-fill using the current
@@ -188,7 +316,7 @@ async fn backfill_history_task(history: SharedHistory, portfolio: Portfolio) {
 }
 
 /// Append a live snapshot of the portfolio at a fixed interval.
-async fn snapshot_recorder(history: SharedHistory, prices: SharedPriceMap, portfolio: Portfolio) {
+async fn snapshot_recorder(history: SharedHistory, prices: SharedPriceMap, portfolio: SharedPortfolio) {
     let mut interval = tokio::time::interval(Duration::from_secs(SNAPSHOT_INTERVAL_SECS));
     interval.tick().await; // Skip the immediate first tick.
 
@@ -196,6 +324,7 @@ async fn snapshot_recorder(history: SharedHistory, prices: SharedPriceMap, portf
         interval.tick().await;
 
         let map = { prices.lock().await.clone() };
+        let portfolio = portfolio.read().await.clone();
         let snapshot = history::take_snapshot(&portfolio, &map);
         if snapshot.total_value_usd <= 0.0 {
             continue; // Skip until prices are populated.
@@ -269,25 +398,6 @@ async fn start_forex_stream(prices: SharedPriceMap, forex_symbol: &str) {
     });
 }
 
-async fn seed_twse_cache(prices: SharedPriceMap, portfolio: &Portfolio) {
-    for category in ["TW-Stock", "TW-ETF"] {
-        if let Some(items) = portfolio.get(category) {
-            for item in items {
-                let symbol = item.symbol.clone();
-                match get_close_price_from_twse(&symbol).await {
-                    Ok(price) => {
-                        let mut map = prices.lock().await;
-                        map.insert(symbol, price);
-                    }
-                    Err(e) => {
-                        println!("Failed to seed close price for {}: {}", symbol, e);
-                    }
-                }
-            }
-        }
-    }
-}
-
 fn setup_terminal() -> Terminal<CrosstermBackend<std::io::Stdout>> {
     enable_raw_mode().unwrap();
     let terminal = Terminal::new(CrosstermBackend::new(std::io::stdout())).unwrap();
@@ -305,8 +415,8 @@ async fn run_display_loop(
     terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
     prices: &SharedPriceMap,
     history: &SharedHistory,
-    portfolio: &Portfolio,
-    target_forex: &str,
+    portfolio: &SharedPortfolio,
+    target_forex: &SharedTargetForex,
 ) {
     let mut view_mode = ViewMode::Live;
 
@@ -331,8 +441,10 @@ async fn run_display_loop(
             }
         }
 
+        let portfolio = portfolio.read().await.clone();
+        let target_forex = target_forex.read().await.clone();
         let map = prices.lock().await;
-        let (lines, total_value) = build_portfolio_display(&map, portfolio).await;
+        let (lines, total_value) = build_portfolio_display(&map, &portfolio).await;
         let history_snapshot = { history.lock().await.clone() };
 
         // Render display
@@ -341,8 +453,8 @@ async fn run_display_loop(
             &lines,
             total_value,
             &map,
-            target_forex,
-            portfolio,
+            &target_forex,
+            &portfolio,
             &history_snapshot,
             view_mode,
         );
@@ -427,26 +539,7 @@ async fn build_portfolio_display(
     (lines, total_value)
 }
 
-pub async fn lazy_stream(prices: SharedPriceMap, portfolio: Portfolio) {
-    // Define categories to handle
-    let categories = ["Crypto", "US-Stock", "US-ETF"];
-
-    for category in categories {
-        if let Some(items) = portfolio.get(category) {
-            for item in items {
-                let prices = prices.clone();
-                let symbol_owned = item.symbol.clone();
-                let category_owned = category.to_string();
-                // If you need to multiply by amount, handle it here
-                spawn_price_stream(&symbol_owned, &category_owned, prices.clone());
-            }
-        } else {
-            println!("[Warning] [{category}] section not found in portfolio.toml");
-        }
-    }
-}
-
-pub async fn polling_stream(prices: SharedPriceMap, cycle: u64, portfolio: Portfolio) {
+pub async fn polling_stream(prices: SharedPriceMap, cycle: u64, portfolio: SharedPortfolio) {
     let mut interval = tokio::time::interval(Duration::from_secs(cycle));
     // Skip the first immediate tick
     interval.tick().await;
@@ -459,6 +552,10 @@ pub async fn polling_stream(prices: SharedPriceMap, cycle: u64, portfolio: Portf
         if !is_twse_market_open() {
             continue;
         }
+
+        // Read the latest holdings each cycle so hot-reloaded changes are picked
+        // up without restarting the stream.
+        let portfolio = portfolio.read().await.clone();
 
         let mut tasks = FuturesUnordered::new();
 

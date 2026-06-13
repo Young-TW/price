@@ -11,10 +11,17 @@ This is a program that calculates the price of all your stocks/ETFs/cryptos in y
 - Multiple data sources with fallback support
 - Terminal UI with asset allocation visualization
 - Support for Taiwan, US stocks/ETFs and cryptocurrencies
+- Hot-reload of `config/` — edit `portfolio.toml` or `target_forex.toml` while
+  the program is running and changes are picked up automatically (no restart)
 
 ## Usage
 
 In the config/ dir. You can add a `portfolio.toml` to create your assets list.
+
+The program watches the `config/` files while running: changing quantities,
+adding or removing holdings, or switching the target currency takes effect
+within a couple of seconds. Newly added holdings start streaming live prices
+automatically; only the one-year historical back-fill still requires a restart.
 
 ### Example
 
