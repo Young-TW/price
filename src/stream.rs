@@ -1,6 +1,6 @@
 use futures::stream::{FuturesUnordered, StreamExt};
-use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
-use crossterm::{execute, cursor, terminal as crossterm_terminal, event::{self, Event, KeyCode}};
+use crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
+use crossterm::{execute, cursor, event::{self, Event, KeyCode}};
 use ratatui::{
     Terminal,
     backend::CrosstermBackend,
@@ -70,7 +70,7 @@ pub async fn stream(cycle: u64, portfolio: Portfolio, target_forex: String) {
     // Main display loop
     run_display_loop(&mut terminal, &prices, &history, &portfolio, &target_forex).await;
     // Cleanup
-    disable_raw_mode().unwrap();
+    restore_terminal(&mut terminal);
 }
 
 async fn start_background_tasks(
@@ -393,17 +393,34 @@ async fn start_forex_stream(prices: SharedPriceMap, forex_symbol: &str) {
     });
 }
 
+/// Switch into a dedicated full-screen buffer so the TUI never draws over (or
+/// leaves residue in) the user's normal terminal scrollback.
 fn setup_terminal() -> Terminal<CrosstermBackend<std::io::Stdout>> {
+    install_panic_hook();
     enable_raw_mode().unwrap();
-    let terminal = Terminal::new(CrosstermBackend::new(std::io::stdout())).unwrap();
-
-    execute!(
-        std::io::stdout(),
-        crossterm_terminal::Clear(crossterm_terminal::ClearType::All),
-        cursor::MoveTo(0, 0)
-    ).unwrap();
-
+    execute!(std::io::stdout(), EnterAlternateScreen, cursor::Hide).unwrap();
+    let mut terminal = Terminal::new(CrosstermBackend::new(std::io::stdout())).unwrap();
+    terminal.clear().unwrap();
     terminal
+}
+
+/// Undo [`setup_terminal`]: leave the alternate screen, disable raw mode and
+/// restore the cursor. Best-effort — failures here must not mask the real exit.
+fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) {
+    let _ = disable_raw_mode();
+    let _ = execute!(std::io::stdout(), LeaveAlternateScreen, cursor::Show);
+    let _ = terminal.show_cursor();
+}
+
+/// Restore the terminal on panic before the default hook prints, so a crash
+/// can't leave the user stuck in raw mode / the alternate screen.
+fn install_panic_hook() {
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let _ = disable_raw_mode();
+        let _ = execute!(std::io::stdout(), LeaveAlternateScreen, cursor::Show);
+        default_hook(info);
+    }));
 }
 
 async fn run_display_loop(
@@ -456,9 +473,6 @@ async fn run_display_loop(
 
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
-
-    // Clear terminal on exit
-    terminal.clear().unwrap();
 }
 
 async fn build_portfolio_display(
