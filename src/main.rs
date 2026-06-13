@@ -12,6 +12,11 @@ mod stream;
 
 #[tokio::main]
 async fn main() {
+    // rustls 0.23 cannot auto-select a CryptoProvider when both aws-lc-rs and
+    // ring are present in the dependency tree, so pick one explicitly up front.
+    rustls::crypto::aws_lc_rs::default_provider()
+        .install_default()
+        .expect("failed to install rustls CryptoProvider");
     // Route diagnostics to a log file before the TUI takes over the terminal.
     logging::init();
     let portfolio = read_portfolio(&paths::portfolio_file());

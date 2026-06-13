@@ -1,5 +1,6 @@
 use eventsource_client::Client as EventSourceClient; // 避免與 reqwest::Client 衝突
 use eventsource_client::{ClientBuilder, SSE};
+use launchdarkly_sdk_transport::HyperTransport;
 
 use futures::StreamExt;
 use once_cell::sync::Lazy;
@@ -124,7 +125,10 @@ where
 {
     let url = format!("{}/v2/updates/price/stream?ids[]={}", BASE_URL, id);
 
-    let mut stream = ClientBuilder::for_url(&url)?.build().stream();
+    let transport = HyperTransport::new_https()?;
+    let mut stream = ClientBuilder::for_url(&url)?
+        .build_with_transport(transport)
+        .stream();
 
     while let Some(event) = stream.next().await {
         match event {
