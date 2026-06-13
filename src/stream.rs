@@ -340,10 +340,17 @@ async fn snapshot_recorder(history: SharedHistory, prices: SharedPriceMap, portf
         }
         let snapshot = history::take_snapshot(&portfolio, &map);
 
-        if let Err(e) = history::append_snapshot(&paths::history_file(), &snapshot) {
+        // Add the snapshot, then downsample so both the in-memory Vec and the
+        // on-disk file stay bounded (recent high-res + one-per-day for older
+        // data) instead of growing forever. The file is rewritten rather than
+        // appended; after downsampling it is small, so this is cheap.
+        let mut guard = history.lock().await;
+        guard.push(snapshot);
+        let bounded = history::downsample(std::mem::take(&mut *guard), Utc::now().timestamp());
+        if let Err(e) = history::save_all(&paths::history_file(), &bounded) {
             crate::log_line!("[snapshot] failed to persist: {}", e);
         }
-        history.lock().await.push(snapshot);
+        *guard = bounded;
     }
 }
 
@@ -462,7 +469,12 @@ async fn run_display_loop(
         let target_forex = target_forex.read().await.clone();
         let map = prices.lock().await;
         let (lines, total_value) = build_portfolio_display(&map, &portfolio).await;
-        let history_snapshot = { history.lock().await.clone() };
+
+        // Borrow the history under its lock for the synchronous draw instead of
+        // cloning the whole (unbounded) Vec every frame. The draw holds no
+        // .await, and the only other writers touch it every 5 minutes, so
+        // contention is negligible.
+        let history_guard = history.lock().await;
 
         // Render display
         tui::render_portfolio(
@@ -472,7 +484,7 @@ async fn run_display_loop(
             &map,
             &target_forex,
             &portfolio,
-            &history_snapshot,
+            &history_guard,
             view_mode,
         );
 

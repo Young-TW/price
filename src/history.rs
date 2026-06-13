@@ -1,6 +1,5 @@
 use std::collections::HashMap;
-use std::fs::{self, OpenOptions};
-use std::io::Write;
+use std::fs;
 use std::path::Path;
 
 use chrono::Utc;
@@ -113,6 +112,47 @@ pub fn take_snapshot(portfolio: &Portfolio, map: &HashMap<String, f64>) -> Portf
     }
 }
 
+/// Snapshots newer than this (relative to "now") are kept at full resolution;
+/// older ones are thinned to the last snapshot of each UTC day. Live snapshots
+/// are recorded every few minutes, so without this the file would grow without
+/// bound during a long-running deployment.
+pub const HIGH_RES_WINDOW_SECS: i64 = 7 * 86_400;
+
+/// Bound history growth by keeping full resolution only within
+/// [`HIGH_RES_WINDOW_SECS`] of `now` and collapsing older snapshots to one per
+/// UTC day (the latest of that day). Input need not be sorted; output is sorted
+/// ascending by timestamp.
+///
+/// This preserves the year of daily back-fill while capping the high-frequency
+/// live snapshots to a recent window, so both the file and the in-memory Vec
+/// stay bounded no matter how long the program runs.
+pub fn downsample(mut snapshots: Vec<PortfolioSnapshot>, now: i64) -> Vec<PortfolioSnapshot> {
+    snapshots.sort_by_key(|s| s.timestamp);
+    let cutoff = now - HIGH_RES_WINDOW_SECS;
+
+    let mut out: Vec<PortfolioSnapshot> = Vec::with_capacity(snapshots.len());
+    let mut last_old_day: Option<i64> = None;
+
+    for snap in snapshots {
+        if snap.timestamp >= cutoff {
+            out.push(snap); // Recent: keep every snapshot.
+            continue;
+        }
+        // Old: keep only the last snapshot of each day. Since the input is
+        // sorted ascending and all old entries precede the recent ones, the
+        // running tail is always the current day's latest so far.
+        let day = snap.timestamp.div_euclid(86_400);
+        if last_old_day == Some(day) {
+            *out.last_mut().expect("old-day entry exists") = snap;
+        } else {
+            last_old_day = Some(day);
+            out.push(snap);
+        }
+    }
+
+    out
+}
+
 /// Load all snapshots from the JSON-Lines history file. Returns an empty vector
 /// if the file does not exist. Malformed lines are skipped.
 pub fn load_history(path: &str) -> Vec<PortfolioSnapshot> {
@@ -129,25 +169,6 @@ pub fn load_history(path: &str) -> Vec<PortfolioSnapshot> {
 
     snapshots.sort_by_key(|s| s.timestamp);
     snapshots
-}
-
-/// Append a single snapshot as one JSON line, creating the parent directory and
-/// file as needed.
-pub fn append_snapshot(path: &str, snapshot: &PortfolioSnapshot) -> Result<(), String> {
-    if let Some(parent) = Path::new(path).parent() {
-        fs::create_dir_all(parent).map_err(|e| format!("Failed to create data dir: {}", e))?;
-    }
-
-    let line = serde_json::to_string(snapshot)
-        .map_err(|e| format!("Failed to serialize snapshot: {}", e))?;
-
-    let mut file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)
-        .map_err(|e| format!("Failed to open history file: {}", e))?;
-
-    writeln!(file, "{}", line).map_err(|e| format!("Failed to write snapshot: {}", e))
 }
 
 /// Overwrite the history file with the full set of snapshots (one JSON line
@@ -285,15 +306,21 @@ mod tests {
         let path_str = path.to_str().unwrap();
         let _ = fs::remove_file(path_str);
 
-        let mut snap = PortfolioSnapshot {
-            timestamp: 1_700_000_000,
-            total_value_usd: 1234.5,
-            category_values: HashMap::from([("US-Stock".to_string(), 1234.5)]),
-            prices: HashMap::from([("AAPL".to_string(), 123.45)]),
-        };
-        append_snapshot(path_str, &snap).unwrap();
-        snap.timestamp = 1_700_086_400;
-        append_snapshot(path_str, &snap).unwrap();
+        let snaps = vec![
+            PortfolioSnapshot {
+                timestamp: 1_700_000_000,
+                total_value_usd: 1234.5,
+                category_values: HashMap::from([("US-Stock".to_string(), 1234.5)]),
+                prices: HashMap::from([("AAPL".to_string(), 123.45)]),
+            },
+            PortfolioSnapshot {
+                timestamp: 1_700_086_400,
+                total_value_usd: 1234.5,
+                category_values: HashMap::from([("US-Stock".to_string(), 1234.5)]),
+                prices: HashMap::from([("AAPL".to_string(), 123.45)]),
+            },
+        ];
+        save_all(path_str, &snaps).unwrap();
 
         let loaded = load_history(path_str);
         assert_eq!(loaded.len(), 2);
@@ -301,6 +328,35 @@ mod tests {
         assert!((loaded[1].total_value_usd - 1234.5).abs() < 1e-6);
 
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_downsample_thins_old_keeps_recent() {
+        let mk = |ts: i64| PortfolioSnapshot {
+            timestamp: ts,
+            total_value_usd: ts as f64, // unique marker per snapshot
+            category_values: HashMap::new(),
+            prices: HashMap::new(),
+        };
+
+        let now = 100 * 86_400;
+        // Old day (day 1): three intra-day snapshots -> collapse to the last.
+        // Old day (day 2): one snapshot -> kept.
+        // Recent (within 7 days of now): two snapshots -> both kept.
+        let recent_a = now - 2 * 86_400;
+        let recent_b = now - 1 * 86_400 + 100;
+        let input = vec![
+            mk(1 * 86_400 + 10),
+            mk(1 * 86_400 + 20),
+            mk(1 * 86_400 + 30),
+            mk(2 * 86_400 + 5),
+            mk(recent_b),
+            mk(recent_a),
+        ];
+
+        let out = downsample(input, now);
+        let ts: Vec<i64> = out.iter().map(|s| s.timestamp).collect();
+        assert_eq!(ts, vec![1 * 86_400 + 30, 2 * 86_400 + 5, recent_a, recent_b]);
     }
 
     #[test]
