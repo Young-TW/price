@@ -5,6 +5,7 @@ use futures::StreamExt;
 use std::collections::HashMap;
 use tokio::sync::Mutex;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 const BASE_URL: &str = "https://hermes.pyth.network";
 const BENCHMARKS_URL: &str = "https://benchmarks.pyth.network";
@@ -197,6 +198,61 @@ mod tests {
     }
 }
 
+/// Backoff bounds for stream reconnection.
+const RECONNECT_MIN_BACKOFF: Duration = Duration::from_secs(1);
+const RECONNECT_MAX_BACKOFF: Duration = Duration::from_secs(60);
+/// A session that stays connected at least this long is considered healthy, so
+/// the backoff is reset to its minimum after it drops.
+const RECONNECT_HEALTHY_SESSION: Duration = Duration::from_secs(30);
+
+/// Stream a Pyth feed into `prices` under `key`, reconnecting indefinitely with
+/// capped exponential backoff whenever the SSE connection ends or errors.
+///
+/// The underlying SSE stream terminates on any network blip; without this loop a
+/// long-running deployment would silently lose feeds one by one and keep showing
+/// stale prices. The backoff resets after a healthy session so transient drops
+/// recover quickly while a persistently failing feed is not hammered.
+pub async fn stream_into_map<C>(id: String, key: String, prices: Arc<Mutex<C>>)
+where
+    C: PriceContainer + Send + 'static,
+{
+    let mut backoff = RECONNECT_MIN_BACKOFF;
+
+    loop {
+        let started = Instant::now();
+
+        // Confine the non-`Send` `Box<dyn Error>` returned by the stream to this
+        // block so it is dropped before the `.await` points below; otherwise the
+        // surrounding task future would not be `Send` and could not be spawned.
+        {
+            let prices_for_cb = Arc::clone(&prices);
+            let key_for_cb = key.clone();
+            let result = get_price_stream_from_pyth(&id, move |price| {
+                let prices = Arc::clone(&prices_for_cb);
+                let key = key_for_cb.clone();
+                tokio::spawn(async move {
+                    prices.lock().await.update(key, price);
+                });
+            })
+            .await;
+
+            match result {
+                Ok(()) => eprintln!("[pyth] stream for {} ended; reconnecting", key),
+                Err(e) => eprintln!("[pyth] stream for {} failed: {}; reconnecting", key, e),
+            }
+        }
+
+        // A long-lived session indicates the feed is healthy, so don't penalise
+        // the reconnect with an inflated backoff.
+        if started.elapsed() >= RECONNECT_HEALTHY_SESSION {
+            backoff = RECONNECT_MIN_BACKOFF;
+        }
+
+        tokio::time::sleep(backoff).await;
+        backoff = (backoff * 2).min(RECONNECT_MAX_BACKOFF);
+    }
+}
+
 pub fn spawn_price_stream<C>(
     symbol: &str,
     category: &str,
@@ -214,16 +270,6 @@ pub fn spawn_price_stream<C>(
                 return;
             }
         };
-        let symbol_clone = symbol.clone();
-        if let Err(e) = get_price_stream_from_pyth(id.as_str(), move |price| {
-            let prices = Arc::clone(&prices);
-            let symbol_clone = symbol_clone.clone();
-            tokio::spawn(async move {
-                let mut prices = prices.lock().await;
-                prices.update(symbol_clone.clone(), price);
-            });
-        }).await {
-            eprintln!("Error occurred for {}: {}", symbol, e);
-        }
+        stream_into_map(id, symbol, prices).await;
     });
 }

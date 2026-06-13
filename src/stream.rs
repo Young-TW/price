@@ -12,7 +12,7 @@ use std::time::Duration;
 use chrono::prelude::*;
 use chrono_tz::Asia::Taipei;
 
-use crate::api::pyth::{get_price_stream_from_pyth, get_pyth_feed_id, spawn_price_stream};
+use crate::api::pyth::{get_pyth_feed_id, spawn_price_stream, stream_into_map};
 use crate::api::twse::get_close_price_from_twse;
 use crate::config;
 use crate::get::{get_history, get_price};
@@ -385,21 +385,11 @@ async fn start_forex_stream(prices: SharedPriceMap, forex_symbol: &str) {
             return;
         }
     };
-    let forex_symbol_clone = forex_symbol.to_string();
-    let forex_symbol_for_error = forex_symbol.to_string();
+    let forex_symbol = forex_symbol.to_string();
 
     tokio::spawn(async move {
-        if let Err(e) = get_price_stream_from_pyth(&id, move |price| {
-            let prices = prices.clone();
-            let symbol = forex_symbol_clone.clone();
-
-            tokio::spawn(async move {
-                let mut map = prices.lock().await;
-                map.insert(symbol, price);
-            });
-        }).await {
-            eprintln!("Failed to subscribe to forex rate {}: {}", forex_symbol_for_error, e);
-        }
+        // Reconnects automatically; forex rates must not silently go stale.
+        stream_into_map(id, forex_symbol, prices).await;
     });
 }
 
