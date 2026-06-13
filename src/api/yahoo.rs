@@ -1,6 +1,11 @@
 use reqwest::Client;
 use serde::Deserialize;
 
+/// Yahoo Finance rejects requests without a browser-like User-Agent (HTTP 429
+/// "Edge: Too Many Requests"), so every call must send one.
+const USER_AGENT: &str =
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
+
 #[derive(Deserialize, Debug)]
 struct YahooChartResponse {
     chart: Chart,
@@ -36,6 +41,7 @@ pub async fn get_price_from_yahoo(symbol: &str) -> Result<f64, String> {
 
     let client = Client::builder()
         .timeout(std::time::Duration::from_secs(5))
+        .user_agent(USER_AGENT)
         .build()
         .map_err(|e| e.to_string())?;
 
@@ -82,6 +88,7 @@ pub async fn get_history_from_yahoo(
 
     let client = Client::builder()
         .timeout(std::time::Duration::from_secs(10))
+        .user_agent(USER_AGENT)
         .build()
         .map_err(|e| e.to_string())?;
 

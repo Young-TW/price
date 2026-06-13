@@ -62,6 +62,49 @@ pub fn compute_category_values(
     (categories, total)
 }
 
+/// The price-map keys required to fully value `portfolio`.
+///
+/// `compute_category_values` silently treats a missing price as zero, so a
+/// snapshot built before every one of these keys is present would understate
+/// the total (and skew allocation ratios). Callers use [`is_complete`] to skip
+/// such partial snapshots instead of persisting the distortion.
+pub fn required_price_keys(portfolio: &Portfolio) -> Vec<String> {
+    let mut keys = Vec::new();
+    let mut needs_twd = false;
+
+    for item in portfolio.iter() {
+        match item.category.as_str() {
+            "TW-Stock" | "TW-ETF" => {
+                keys.push(item.symbol.clone());
+                needs_twd = true; // Taiwan equities are priced in TWD.
+            }
+            "Forex" => {
+                if item.symbol != "USD" {
+                    keys.push(format!("USD/{}", item.symbol));
+                }
+            }
+            // Crypto, US-Stock, US-ETF are priced directly in USD.
+            _ => keys.push(item.symbol.clone()),
+        }
+    }
+
+    if needs_twd {
+        keys.push("USD/TWD".to_string());
+    }
+
+    keys.sort();
+    keys.dedup();
+    keys
+}
+
+/// Whether `map` holds a non-zero price for every key needed to fully value
+/// `portfolio`. Only complete price maps yield meaningful snapshots.
+pub fn is_complete(portfolio: &Portfolio, map: &HashMap<String, f64>) -> bool {
+    required_price_keys(portfolio)
+        .iter()
+        .all(|key| map.get(key).is_some_and(|v| *v != 0.0))
+}
+
 /// Build a snapshot of the portfolio from the current price map.
 pub fn take_snapshot(portfolio: &Portfolio, map: &HashMap<String, f64>) -> PortfolioSnapshot {
     let (category_values, total_value_usd) = compute_category_values(portfolio, map);
@@ -213,6 +256,29 @@ mod tests {
         // Cash = 100 USD + 3000 TWD / 30 = 100 + 100 = 200
         assert!((cats["Cash"] - 200.0).abs() < 1e-6);
         assert!((total - 2400.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_is_complete_requires_every_holding() {
+        let portfolio = Portfolio(vec![
+            item("AAPL", "US-Stock", 10.0),
+            item("2330", "TW-Stock", 10.0),
+            item("USD", "Forex", 100.0),
+            item("TWD", "Forex", 3000.0),
+        ]);
+
+        let mut map = HashMap::new();
+        map.insert("AAPL".to_string(), 200.0);
+        map.insert("2330".to_string(), 600.0);
+        // USD/TWD still missing -> the TW stock and TWD cash can't be valued.
+        assert!(!is_complete(&portfolio, &map));
+
+        map.insert("USD/TWD".to_string(), 30.0);
+        assert!(is_complete(&portfolio, &map));
+
+        // USD cash needs no rate; a zero rate counts as missing.
+        map.insert("USD/TWD".to_string(), 0.0);
+        assert!(!is_complete(&portfolio, &map));
     }
 
     #[test]

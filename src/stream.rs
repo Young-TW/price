@@ -293,10 +293,13 @@ async fn backfill_history_task(history: SharedHistory, portfolio: Portfolio) {
     // Rebuild a snapshot for each day using current quantities.
     let mut backfilled = Vec::new();
     for (day, map) in day_maps {
-        let (category_values, total) = history::compute_category_values(&portfolio, &map);
-        if total <= 0.0 {
+        // Days that lack a close for some holdings (e.g. weekends, when TWSE is
+        // shut but crypto still trades) would value the missing assets at zero,
+        // so skip them rather than recording an artificially low total.
+        if !history::is_complete(&portfolio, &map) {
             continue;
         }
+        let (category_values, total) = history::compute_category_values(&portfolio, &map);
         backfilled.push(PortfolioSnapshot {
             timestamp: day * 86_400,
             total_value_usd: total,
@@ -325,10 +328,12 @@ async fn snapshot_recorder(history: SharedHistory, prices: SharedPriceMap, portf
 
         let map = { prices.lock().await.clone() };
         let portfolio = portfolio.read().await.clone();
-        let snapshot = history::take_snapshot(&portfolio, &map);
-        if snapshot.total_value_usd <= 0.0 {
-            continue; // Skip until prices are populated.
+        // Only record once every holding has a price; a partial map would
+        // understate the total and produce spurious dips in the history.
+        if !history::is_complete(&portfolio, &map) {
+            continue;
         }
+        let snapshot = history::take_snapshot(&portfolio, &map);
 
         if let Err(e) = history::append_snapshot(history::HISTORY_PATH, &snapshot) {
             eprintln!("[snapshot] failed to persist: {}", e);
