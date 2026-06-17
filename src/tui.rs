@@ -110,11 +110,13 @@ fn render_asset_allocation(
     let colors = PALETTE;
     let (categories, _total) = compute_category_values(portfolio, map);
 
-    // Sort categories by value (largest to smallest)
+    // Sort categories by value (largest to smallest), dropping any non-finite
+    // values (NaN or Infinity) so the sort never receives a None from partial_cmp.
     let mut sorted_categories: Vec<(&str, f64)> = categories.iter()
         .map(|(k, &v)| (k.as_str(), v))
         .collect();
-    sorted_categories.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+    sorted_categories.retain(|(_, v)| v.is_finite());
+    sorted_categories.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
     // Create asset allocation display with sorted order
     let mut allocation_lines = Vec::new();
@@ -310,4 +312,56 @@ fn render_ratio_chart(
         ]));
 
     f.render_widget(chart, area);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ratatui::{Terminal, backend::TestBackend};
+
+    fn item(symbol: &str, category: &str, quantity: f64) -> crate::types::PortfolioItem {
+        crate::types::PortfolioItem {
+            symbol: symbol.to_string(),
+            category: category.to_string(),
+            quantity,
+        }
+    }
+
+    /// Verifies that render_asset_allocation does not panic when the price map
+    /// contains NaN values (price * quantity produces NaN for that asset).
+    #[test]
+    fn render_asset_allocation_nan_price_does_not_panic() {
+        let portfolio = Portfolio(vec![
+            item("BTC", "Crypto", 1.0),
+            item("ETH", "Crypto", 2.0),
+        ]);
+
+        let mut map = HashMap::new();
+        map.insert("BTC".to_string(), f64::NAN);
+        map.insert("ETH".to_string(), 2000.0);
+
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| {
+            render_asset_allocation(f, f.area(), &portfolio, &map, 2000.0);
+        }).unwrap();
+    }
+
+    /// Verifies that non-finite category values (NaN, Infinity) are stripped
+    /// before sorting so the sort never receives a None from partial_cmp.
+    #[test]
+    fn render_asset_allocation_infinity_does_not_panic() {
+        let portfolio = Portfolio(vec![
+            item("AAPL", "US-Stock", 10.0),
+        ]);
+
+        let mut map = HashMap::new();
+        map.insert("AAPL".to_string(), f64::INFINITY);
+
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| {
+            render_asset_allocation(f, f.area(), &portfolio, &map, 0.0);
+        }).unwrap();
+    }
 }
