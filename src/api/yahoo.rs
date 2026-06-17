@@ -130,6 +130,68 @@ pub async fn get_history_from_yahoo(
     Ok(series)
 }
 
+/// Fetch historical daily close prices for a precise epoch-second window.
+///
+/// Uses Yahoo's `period1`/`period2` query parameters instead of a coarse
+/// `range` bucket, so the fetched series matches the caller-supplied window
+/// without over-fetching. Results are also filtered to `[from, to]` as a
+/// safety net against off-by-one or timezone edge cases.
+pub async fn get_history_from_yahoo_range(
+    symbol: &str,
+    from: i64,
+    to: i64,
+    interval: &str,
+) -> Result<Vec<(i64, f64)>, String> {
+    let url = format!(
+        "https://query1.finance.yahoo.com/v8/finance/chart/{}?interval={}&period1={}&period2={}",
+        symbol, interval, from, to
+    );
+
+    let client = Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .user_agent(USER_AGENT)
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let response = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("[Yahoo] Failed to query history {}: {}", symbol, e))?;
+
+    if !response.status().is_success() {
+        return Err(format!("[Yahoo] HTTP error: {}", response.status()));
+    }
+
+    let data: YahooChartResponse = response
+        .json()
+        .await
+        .map_err(|e| format!("[Yahoo] JSON format error: {}", e))?;
+
+    let result = data
+        .chart
+        .result
+        .as_ref()
+        .and_then(|r| r.get(0))
+        .ok_or_else(|| format!("[Yahoo] No history result for {}", symbol))?;
+
+    let quote = result
+        .indicators
+        .quote
+        .get(0)
+        .ok_or_else(|| format!("[Yahoo] No quote data for {}", symbol))?;
+
+    let series = result
+        .timestamp
+        .iter()
+        .zip(quote.close.iter())
+        .filter_map(|(t, c)| c.map(|close| (*t, close)))
+        .filter(|(t, _)| *t >= from && *t <= to)
+        .collect();
+
+    Ok(series)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

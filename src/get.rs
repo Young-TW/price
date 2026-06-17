@@ -3,7 +3,7 @@
 use crate::api::pyth::{get_history_from_pyth, pyth_tv_symbol};
 use crate::api::redstone::get_price_from_redstone;
 use crate::api::twse::get_price_from_twse;
-use crate::api::yahoo::{get_history_from_yahoo, get_price_from_yahoo};
+use crate::api::yahoo::{get_history_from_yahoo_range, get_price_from_yahoo};
 
 pub async fn get_price(symbol: &str, category: &str) -> Result<f64, String> {
     match category {
@@ -86,7 +86,7 @@ pub async fn get_history(
         "TW-Stock" | "TW-ETF" => {
             // Pyth has no Taiwan equities; Yahoo needs the .TW suffix.
             let yahoo_symbol = format!("{}.TW", symbol);
-            get_history_from_yahoo(&yahoo_symbol, "1y", "1d").await
+            get_history_from_yahoo_range(&yahoo_symbol, from, to, "1d").await
         }
 
         _ => Err(format!("Unknown asset category: {}", category)),
@@ -118,5 +118,26 @@ mod tests {
         assert!(price.is_err()); // Crypto fetching is currently disabled
         let price = get_price("AAPL", "Unknown").await;
         assert!(price.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_get_history_tw_respects_range() {
+        if !live_price_tests_enabled() {
+            return;
+        }
+        let to = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        let from = to - 30 * 86_400;
+
+        for (symbol, category) in [("2330", "TW-Stock"), ("0050", "TW-ETF")] {
+            let series = get_history(symbol, category, from, to).await.unwrap();
+            assert!(!series.is_empty(), "{} ({}) returned no history", symbol, category);
+            for (ts, _) in &series {
+                assert!(*ts >= from, "{}: timestamp {} < from {}", symbol, ts, from);
+                assert!(*ts <= to, "{}: timestamp {} > to {}", symbol, ts, to);
+            }
+        }
     }
 }
