@@ -519,12 +519,13 @@ async fn build_portfolio_display(
                 if category == "TW-Stock" || category == "TW-ETF" {
                     lines.push(format!("{}: NT${:.2} x {:.4} = NT${:.2}", symbol, price, amount, asset_value));
 
-                    if let Some(rate) = map.get("USD/TWD") {
-                        let usd_value = asset_value / rate;
-                        lines.push(format!("  (Converted to USD): ${:.2} / {:.4} = ${:.2}", asset_value, rate, usd_value));
-                        total_value += usd_value;
-                    } else {
-                        lines.push("  [Warning] USD/TWD rate not available".to_string());
+                    match map.get("USD/TWD") {
+                        Some(rate) if *rate != 0.0 => {
+                            let usd_value = asset_value / rate;
+                            lines.push(format!("  (Converted to USD): ${:.2} / {:.4} = ${:.2}", asset_value, rate, usd_value));
+                            total_value += usd_value;
+                        }
+                        _ => lines.push("  [Warning] USD/TWD rate not available".to_string()),
                     }
                 } else if category == "Crypto" || category == "US-Stock" || category == "US-ETF" {
                     lines.push(format!("{}: ${:.2} x {:.4} = ${:.2}", symbol, price, amount, asset_value));
@@ -551,12 +552,13 @@ async fn build_portfolio_display(
                 total_value += quantity;
             } else {
                 let forex_key = format!("USD/{}", symbol);
-                if let Some(forex_price) = map.get(&forex_key) {
-                    let converted_value = quantity / forex_price;
-                    lines.push(format!("  (Converted to USD): ${:.2} / {:.4} = ${:.2}", quantity, forex_price, converted_value));
-                    total_value += converted_value;
-                } else {
-                    lines.push(format!("  Cannot get forex rate for {}", symbol));
+                match map.get(&forex_key) {
+                    Some(forex_price) if *forex_price != 0.0 => {
+                        let converted_value = quantity / forex_price;
+                        lines.push(format!("  (Converted to USD): ${:.2} / {:.4} = ${:.2}", quantity, forex_price, converted_value));
+                        total_value += converted_value;
+                    }
+                    _ => lines.push(format!("  Cannot get forex rate for {}", symbol)),
                 }
             }
         }
@@ -664,5 +666,54 @@ mod tests {
     fn usd_display_currency_alone_needs_no_pairs() {
         let p = portfolio(&[("US-Stock", "AAPL"), ("Forex", "USD")]);
         assert!(required_forex_pairs(&p, "USD").is_empty());
+    }
+
+    #[tokio::test]
+    async fn tw_stock_zero_rate_yields_finite_total() {
+        let p = portfolio(&[("TW-Stock", "2330")]);
+        // Price present but rate is 0.0 — must not produce Infinity.
+        let map: HashMap<String, f64> = [
+            ("2330".to_string(), 100.0),
+            ("USD/TWD".to_string(), 0.0),
+        ]
+        .into_iter()
+        .collect();
+        let (lines, total) = build_portfolio_display(&map, &p).await;
+        assert!(total.is_finite(), "total_value must be finite, got {total}");
+        assert!(
+            lines.iter().any(|l| l.contains("[Warning]")),
+            "warning line expected when rate is 0.0",
+        );
+    }
+
+    #[tokio::test]
+    async fn tw_stock_absent_rate_yields_finite_total() {
+        let p = portfolio(&[("TW-Stock", "2330")]);
+        // Rate key entirely absent — must not produce Infinity.
+        let map: HashMap<String, f64> = [("2330".to_string(), 100.0)].into_iter().collect();
+        let (lines, total) = build_portfolio_display(&map, &p).await;
+        assert!(total.is_finite(), "total_value must be finite, got {total}");
+        assert!(
+            lines.iter().any(|l| l.contains("[Warning]")),
+            "warning line expected when rate is absent",
+        );
+    }
+
+    #[tokio::test]
+    async fn forex_zero_rate_yields_finite_total() {
+        let p = portfolio(&[("Forex", "TWD")]);
+        // Forex rate is 0.0 — must not produce Infinity.
+        let map: HashMap<String, f64> = [("USD/TWD".to_string(), 0.0)].into_iter().collect();
+        let (_, total) = build_portfolio_display(&map, &p).await;
+        assert!(total.is_finite(), "total_value must be finite, got {total}");
+    }
+
+    #[tokio::test]
+    async fn forex_absent_rate_yields_finite_total() {
+        let p = portfolio(&[("Forex", "TWD")]);
+        // Forex rate key absent — must not produce Infinity.
+        let map: HashMap<String, f64> = HashMap::new();
+        let (_, total) = build_portfolio_display(&map, &p).await;
+        assert!(total.is_finite(), "total_value must be finite, got {total}");
     }
 }
