@@ -1,3 +1,5 @@
+//! ExchangeRate-API forex rate source.
+
 use reqwest::Client;
 use serde::Deserialize;
 
@@ -10,6 +12,12 @@ struct ExchangeRateResponse {
     rates: std::collections::HashMap<String, f64>,
 }
 
+/// Fetch the conversion rate from currency `from` to currency `to`.
+///
+/// Both codes are upper-cased. Requires `exchangerate_api_key` in the API key
+/// file. Returns the rate, or an `Err` string if the key is missing, the request
+/// or HTTP call fails, the response status is not `"success"`, or `to` is absent
+/// from the returned rate table.
 pub async fn get_rate(from: &str, to: &str) -> Result<f64, String> {
     let api_keys = read_api_keys(&crate::paths::api_key_file())
         .map_err(|e| format!("[ExchangeRate] Failed to read API key: {}", e))?;

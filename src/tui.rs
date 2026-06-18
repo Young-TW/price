@@ -1,3 +1,6 @@
+//! Terminal UI rendering: the live portfolio/allocation screen and the
+//! historical value and allocation-ratio charts.
+
 use ratatui::{
     widgets::{Block, Paragraph, Borders, Axis, Chart, Dataset, GraphType},
     symbols,
@@ -16,7 +19,9 @@ use crate::types::{Portfolio, PortfolioSnapshot};
 /// Which screen the TUI is currently showing.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum ViewMode {
+    /// The live portfolio and asset-allocation screen.
     Live,
+    /// The historical value and allocation-ratio screen.
     History,
 }
 
@@ -42,6 +47,12 @@ const PALETTE: [Color; 6] = [
     Color::Green,
 ];
 
+/// Render one frame to `terminal` for the current `view_mode`.
+///
+/// In [`ViewMode::History`] it draws the history charts from `history`.
+/// Otherwise it draws the portfolio lines plus the total value in USD (and, when
+/// a `USD/<target_forex>` rate is present in `map`, the total converted to the
+/// target currency), with the asset-allocation panel below.
 pub fn render_portfolio(
     terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
     lines: &[String],

@@ -1,3 +1,5 @@
+//! Yahoo Finance price and history source.
+
 use reqwest::Client;
 use serde::Deserialize;
 
@@ -33,6 +35,10 @@ struct Quote {
     close: Vec<Option<f64>>, // Some time points may be null
 }
 
+/// Fetch the latest daily close price for `symbol` from Yahoo Finance.
+///
+/// Queries a one-day chart and returns the last non-null close. Returns an `Err`
+/// string on request, HTTP or JSON failure, or when no closing price is present.
 pub async fn get_price_from_yahoo(symbol: &str) -> Result<f64, String> {
     let url = format!(
         "https://query1.finance.yahoo.com/v8/finance/chart/{}?interval=1d&range=1d",

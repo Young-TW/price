@@ -1,3 +1,9 @@
+//! Binary entry point for the `price` portfolio tracker.
+//!
+//! Installs the rustls crypto provider, initialises file logging, loads the
+//! portfolio and display currency from the config files, and hands off to the
+//! streaming TUI.
+
 use config::read_portfolio;
 
 mod api;

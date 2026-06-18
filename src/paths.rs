@@ -25,25 +25,30 @@ pub fn data_dir() -> String {
     env::var("PRICE_DATA_DIR").unwrap_or_else(|_| DEFAULT_DATA_DIR.to_string())
 }
 
+/// Path to the portfolio file: `<config dir>/portfolio.toml`.
 pub fn portfolio_file() -> String {
     format!("{}/portfolio.toml", config_dir())
 }
 
+/// Path to the display-currency file: `<config dir>/target_forex.toml`.
 pub fn target_forex_file() -> String {
     format!("{}/target_forex.toml", config_dir())
 }
 
 // Only referenced by the AlphaVantage/ExchangeRate sources, which are currently
 // disabled; kept so they resolve the path consistently once re-enabled.
+/// Path to the API key file: `<config dir>/api_key.toml`.
 #[allow(dead_code)]
 pub fn api_key_file() -> String {
     format!("{}/api_key.toml", config_dir())
 }
 
+/// Path to the snapshot history file: `<data dir>/history.jsonl`.
 pub fn history_file() -> String {
     format!("{}/history.jsonl", data_dir())
 }
 
+/// Path to the CSV export of the history: `<data dir>/history.csv`.
 pub fn history_csv_file() -> String {
     format!("{}/history.csv", data_dir())
 }

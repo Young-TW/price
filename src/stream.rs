@@ -1,3 +1,7 @@
+//! The running application: spawns the live price streams and background tasks,
+//! drives the TUI display loop, and polls Taiwan-market prices and config
+//! hot-reloads.
+
 use futures::stream::{FuturesUnordered, StreamExt};
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
 use crossterm::{execute, cursor, event::{self, Event, KeyCode}};
@@ -58,6 +62,13 @@ fn is_twse_market_open() -> bool {
     current_time >= open_time && current_time < close_time
 }
 
+/// Run the application: start the background price/snapshot/reload tasks, set up
+/// the terminal, run the display loop until the user quits, then restore the
+/// terminal.
+///
+/// `cycle` is the Taiwan-market polling interval in seconds, `portfolio` the
+/// initial holdings and `target_forex` the initial display currency. Returns
+/// when the user exits the display loop.
 pub async fn stream(cycle: u64, portfolio: Portfolio, target_forex: String) {
     let prices: SharedPriceMap = Arc::new(Mutex::new(HashMap::new()));
     let history: SharedHistory = Arc::new(Mutex::new(history::load_history(&paths::history_file())));
@@ -567,6 +578,12 @@ async fn build_portfolio_display(
     (lines, total_value)
 }
 
+/// Poll Taiwan-market (`TW-Stock`, `TW-ETF`) prices every `cycle` seconds and
+/// write them into `prices`.
+///
+/// Loops forever. The first immediate tick is skipped, and cycles where the TWSE
+/// market is closed are skipped (cached prices remain). Holdings are re-read from
+/// `portfolio` each cycle so hot-reloaded changes are picked up.
 pub async fn polling_stream(prices: SharedPriceMap, cycle: u64, portfolio: SharedPortfolio) {
     let mut interval = tokio::time::interval(Duration::from_secs(cycle));
     // Skip the first immediate tick
