@@ -1,0 +1,30 @@
+name: Audit
+
+# Supply-chain oracle. "cargo build/test green" can't tell you a dependency has a
+# known RUSTSEC advisory or was yanked — this can. Runs on every PR (so a flagged
+# bump turns the PR red and auto-merge can't fire) and weekly (so a newly-disclosed
+# advisory on an *existing* dependency is caught even with no bump).
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+      - name: Ensure a lockfile exists (lib crates may not commit one)
+        run: test -f Cargo.lock || cargo generate-lockfile
+      - name: cargo audit
+        run: cargo audit -D warnings

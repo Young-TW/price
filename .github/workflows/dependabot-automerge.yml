@@ -1,0 +1,38 @@
+name: Dependabot auto-merge
+
+# Tiered auto-merge gated by semver bump type (the objective, free-to-read oracle):
+#   patch + minor -> enable auto-merge (GitHub merges once required checks pass)
+#   major         -> left untouched for a human (breaking changes get eyes)
+#
+# Auto-merge only WAITS for CI if the branch has required status checks. Without
+# branch protection a PR is instantly mergeable and would merge before CI finishes
+# — so this workflow is only half the gate; branch protection requiring the CI +
+# audit checks is the other half (set by deps-setup.sh phase 2).
+#
+# pull_request_target is deliberate: workflows triggered by Dependabot get a
+# read-only GITHUB_TOKEN by default, so a plain pull_request trigger couldn't merge.
+# pull_request_target runs in the base context where the permissions block applies.
+
+on: pull_request_target
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  automerge:
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    steps:
+      - name: Fetch Dependabot metadata
+        id: meta
+        uses: dependabot/fetch-metadata@v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Enable auto-merge for patch & minor
+        if: ${{ steps.meta.outputs.update-type == 'version-update:semver-patch' || steps.meta.outputs.update-type == 'version-update:semver-minor' }}
+        run: gh pr merge --auto --squash "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
