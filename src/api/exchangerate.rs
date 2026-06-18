@@ -35,23 +35,27 @@ pub async fn get_rate(from: &str, to: &str) -> Result<f64, String> {
         .build()
         .map_err(|e| e.to_string())?;
 
-    let response = client.get(&url).send().await.map_err(|e| {
-        format!("[ExchangeRate] Query failed: {}", e)
-    })?;
+    let response = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("[ExchangeRate] Query failed: {}", e))?;
 
     if !response.status().is_success() {
         return Err(format!("[ExchangeRate] HTTP error: {}", response.status()));
     }
 
-    let data: ExchangeRateResponse = response.json().await.map_err(|e| {
-        format!("[ExchangeRate] JSON format error: {}", e)
-    })?;
+    let data: ExchangeRateResponse = response
+        .json()
+        .await
+        .map_err(|e| format!("[ExchangeRate] JSON format error: {}", e))?;
 
     if data.result != "success" {
         return Err("[ExchangeRate] Response failed".to_string());
     }
 
-    data.rates.get(&to.to_uppercase())
+    data.rates
+        .get(&to.to_uppercase())
         .copied()
         .ok_or_else(|| format!("[ExchangeRate] Cannot find rate for {}", to))
 }

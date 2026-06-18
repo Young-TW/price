@@ -25,14 +25,17 @@ pub async fn get_price_from_redstone(symbol: &str) -> Result<f64, String> {
         .build()
         .map_err(|e| e.to_string())?;
 
-    let response = client.get(&url).send().await.map_err(|e| {
-        format!("[RedStone] Failed to query price for {}: {}", symbol, e)
-    })?;
+    let response = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("[RedStone] Failed to query price for {}: {}", symbol, e))?;
 
     if response.status().is_success() {
-        let data: Vec<RedstonePrice> = response.json().await.map_err(|e| {
-            format!("[RedStone] Returned JSON format error: {}", e)
-        })?;
+        let data: Vec<RedstonePrice> = response
+            .json()
+            .await
+            .map_err(|e| format!("[RedStone] Returned JSON format error: {}", e))?;
 
         if let Some(price_data) = data.get(0) {
             Ok(price_data.value)

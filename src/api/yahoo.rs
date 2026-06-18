@@ -5,8 +5,7 @@ use serde::Deserialize;
 
 /// Yahoo Finance rejects requests without a browser-like User-Agent (HTTP 429
 /// "Edge: Too Many Requests"), so every call must send one.
-const USER_AGENT: &str =
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
+const USER_AGENT: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
 
 #[derive(Deserialize, Debug)]
 struct YahooChartResponse {
@@ -51,17 +50,20 @@ pub async fn get_price_from_yahoo(symbol: &str) -> Result<f64, String> {
         .build()
         .map_err(|e| e.to_string())?;
 
-    let response = client.get(&url).send().await.map_err(|e| {
-        format!("[Yahoo] Failed to query {}: {}", symbol, e)
-    })?;
+    let response = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("[Yahoo] Failed to query {}: {}", symbol, e))?;
 
     if !response.status().is_success() {
         return Err(format!("[Yahoo] HTTP error: {}", response.status()));
     }
 
-    let data: YahooChartResponse = response.json().await.map_err(|e| {
-        format!("[Yahoo] JSON format error: {}", e)
-    })?;
+    let data: YahooChartResponse = response
+        .json()
+        .await
+        .map_err(|e| format!("[Yahoo] JSON format error: {}", e))?;
 
     let close = data
         .chart
@@ -73,7 +75,10 @@ pub async fn get_price_from_yahoo(symbol: &str) -> Result<f64, String> {
 
     match close {
         Some(price) => Ok(price),
-        None => Err(format!("[Yahoo] Failed to get closing price for {}", symbol)),
+        None => Err(format!(
+            "[Yahoo] Failed to get closing price for {}",
+            symbol
+        )),
     }
 }
 

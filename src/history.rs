@@ -44,7 +44,9 @@ pub fn compute_category_values(
                 }
             } else {
                 // Crypto, US-Stock, US-ETF are already priced in USD.
-                map.get(&item.symbol).map(|p| p * item.quantity).unwrap_or(0.0)
+                map.get(&item.symbol)
+                    .map(|p| p * item.quantity)
+                    .unwrap_or(0.0)
             };
 
             category_value += usd_value;
@@ -52,7 +54,11 @@ pub fn compute_category_values(
 
         if category_value > 0.0 {
             // Merge cash-like holdings under a single "Cash" bucket.
-            let key = if category == "Forex" { "Cash".to_string() } else { category };
+            let key = if category == "Forex" {
+                "Cash".to_string()
+            } else {
+                category
+            };
             *categories.entry(key).or_insert(0.0) += category_value;
             total += category_value;
         }
@@ -359,7 +365,10 @@ mod tests {
 
         let out = downsample(input, now);
         let ts: Vec<i64> = out.iter().map(|s| s.timestamp).collect();
-        assert_eq!(ts, vec![1 * 86_400 + 30, 2 * 86_400 + 5, recent_a, recent_b]);
+        assert_eq!(
+            ts,
+            vec![1 * 86_400 + 30, 2 * 86_400 + 5, recent_a, recent_b]
+        );
     }
 
     #[test]
