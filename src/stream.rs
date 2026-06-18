@@ -2,19 +2,22 @@
 //! drives the TUI display loop, and polls Taiwan-market prices and config
 //! hot-reloads.
 
-use futures::stream::{FuturesUnordered, StreamExt};
-use crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
-use crossterm::{execute, cursor, event::{self, Event, KeyCode}};
-use ratatui::{
-    Terminal,
-    backend::CrosstermBackend,
-};
-use std::collections::{BTreeMap, HashMap, HashSet};
-use std::sync::Arc;
-use tokio::sync::{Mutex, RwLock};
-use std::time::Duration;
 use chrono::prelude::*;
 use chrono_tz::Asia::Taipei;
+use crossterm::terminal::{
+    EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
+};
+use crossterm::{
+    cursor,
+    event::{self, Event, KeyCode},
+    execute,
+};
+use futures::stream::{FuturesUnordered, StreamExt};
+use ratatui::{Terminal, backend::CrosstermBackend};
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::sync::{Mutex, RwLock};
 
 use crate::api::pyth::{get_pyth_feed_id, spawn_price_stream, stream_into_map};
 use crate::api::twse::get_close_price_from_twse;
@@ -49,7 +52,14 @@ fn is_twse_market_open() -> bool {
     let weekday = now.weekday();
 
     // Only open on weekdays (Monday to Friday)
-    if !matches!(weekday, chrono::Weekday::Mon | chrono::Weekday::Tue | chrono::Weekday::Wed | chrono::Weekday::Thu | chrono::Weekday::Fri) {
+    if !matches!(
+        weekday,
+        chrono::Weekday::Mon
+            | chrono::Weekday::Tue
+            | chrono::Weekday::Wed
+            | chrono::Weekday::Thu
+            | chrono::Weekday::Fri
+    ) {
         return false;
     }
 
@@ -71,12 +81,21 @@ fn is_twse_market_open() -> bool {
 /// when the user exits the display loop.
 pub async fn stream(cycle: u64, portfolio: Portfolio, target_forex: String) {
     let prices: SharedPriceMap = Arc::new(Mutex::new(HashMap::new()));
-    let history: SharedHistory = Arc::new(Mutex::new(history::load_history(&paths::history_file())));
+    let history: SharedHistory =
+        Arc::new(Mutex::new(history::load_history(&paths::history_file())));
     let portfolio: SharedPortfolio = Arc::new(RwLock::new(portfolio));
     let target_forex: SharedTargetForex = Arc::new(RwLock::new(target_forex));
     let subscribed: SubscribedSet = Arc::new(Mutex::new(HashSet::new()));
     // Start background tasks
-    start_background_tasks(&prices, &history, &portfolio, &target_forex, &subscribed, cycle).await;
+    start_background_tasks(
+        &prices,
+        &history,
+        &portfolio,
+        &target_forex,
+        &subscribed,
+        cycle,
+    )
+    .await;
     // Setup terminal
     let mut terminal = setup_terminal();
     // Main display loop
@@ -130,7 +149,13 @@ async fn start_background_tasks(
     let watch_prices = prices.clone();
     let watch_subscribed = subscribed.clone();
     tokio::spawn(async move {
-        watch_config(watch_portfolio, watch_target, watch_prices, watch_subscribed).await;
+        watch_config(
+            watch_portfolio,
+            watch_target,
+            watch_prices,
+            watch_subscribed,
+        )
+        .await;
     });
 }
 
@@ -176,7 +201,11 @@ async fn ensure_subscriptions(
                             prices.lock().await.insert(item.symbol.clone(), price);
                         }
                         Err(e) => {
-                            crate::log_line!("Failed to seed close price for {}: {}", item.symbol, e);
+                            crate::log_line!(
+                                "Failed to seed close price for {}: {}",
+                                item.symbol,
+                                e
+                            );
                         }
                     }
                 }
@@ -279,17 +308,29 @@ async fn backfill_history_task(history: SharedHistory, portfolio: Portfolio) {
             }
             "TW-Stock" | "TW-ETF" => {
                 has_tw = true;
-                requests.push((item.symbol.clone(), item.symbol.clone(), item.category.clone()));
+                requests.push((
+                    item.symbol.clone(),
+                    item.symbol.clone(),
+                    item.category.clone(),
+                ));
             }
             _ => {
-                requests.push((item.symbol.clone(), item.symbol.clone(), item.category.clone()));
+                requests.push((
+                    item.symbol.clone(),
+                    item.symbol.clone(),
+                    item.category.clone(),
+                ));
             }
         }
     }
 
     // TW holdings need a USD/TWD rate even if TWD isn't held as cash.
     if has_tw && !has_twd_forex {
-        requests.push(("USD/TWD".to_string(), "TWD".to_string(), "Forex".to_string()));
+        requests.push((
+            "USD/TWD".to_string(),
+            "TWD".to_string(),
+            "Forex".to_string(),
+        ));
     }
 
     // Bucket every fetched close into a per-UTC-day price map.
@@ -335,7 +376,11 @@ async fn backfill_history_task(history: SharedHistory, portfolio: Portfolio) {
 }
 
 /// Append a live snapshot of the portfolio at a fixed interval.
-async fn snapshot_recorder(history: SharedHistory, prices: SharedPriceMap, portfolio: SharedPortfolio) {
+async fn snapshot_recorder(
+    history: SharedHistory,
+    prices: SharedPriceMap,
+    portfolio: SharedPortfolio,
+) {
     let mut interval = tokio::time::interval(Duration::from_secs(SNAPSHOT_INTERVAL_SECS));
     interval.tick().await; // Skip the immediate first tick.
 
@@ -516,7 +561,9 @@ async fn build_portfolio_display(
 
     // Handle non-forex assets
     for (category, mut items) in categories {
-        if category == "Forex" { continue; }
+        if category == "Forex" {
+            continue;
+        }
 
         // Sort items by symbol for stable ordering
         items.sort_by(|a, b| a.symbol.cmp(&b.symbol));
@@ -528,21 +575,33 @@ async fn build_portfolio_display(
                 let asset_value = price * amount;
 
                 if category == "TW-Stock" || category == "TW-ETF" {
-                    lines.push(format!("{}: NT${:.2} x {:.4} = NT${:.2}", symbol, price, amount, asset_value));
+                    lines.push(format!(
+                        "{}: NT${:.2} x {:.4} = NT${:.2}",
+                        symbol, price, amount, asset_value
+                    ));
 
                     match map.get("USD/TWD") {
                         Some(rate) if *rate != 0.0 => {
                             let usd_value = asset_value / rate;
-                            lines.push(format!("  (Converted to USD): ${:.2} / {:.4} = ${:.2}", asset_value, rate, usd_value));
+                            lines.push(format!(
+                                "  (Converted to USD): ${:.2} / {:.4} = ${:.2}",
+                                asset_value, rate, usd_value
+                            ));
                             total_value += usd_value;
                         }
                         _ => lines.push("  [Warning] USD/TWD rate not available".to_string()),
                     }
                 } else if category == "Crypto" || category == "US-Stock" || category == "US-ETF" {
-                    lines.push(format!("{}: ${:.2} x {:.4} = ${:.2}", symbol, price, amount, asset_value));
+                    lines.push(format!(
+                        "{}: ${:.2} x {:.4} = ${:.2}",
+                        symbol, price, amount, asset_value
+                    ));
                     total_value += asset_value;
                 } else {
-                    lines.push(format!("{}: ${:.2} x {:.4} = ${:.2}", symbol, price, amount, asset_value));
+                    lines.push(format!(
+                        "{}: ${:.2} x {:.4} = ${:.2}",
+                        symbol, price, amount, asset_value
+                    ));
                     total_value += asset_value;
                 }
             }
@@ -557,7 +616,10 @@ async fn build_portfolio_display(
         for item in forex_items {
             let symbol = &item.symbol;
             let quantity = item.quantity;
-            lines.push(format!("{}: ${:.2} x {:.4} = ${:.2}", symbol, 1.0, quantity, quantity));
+            lines.push(format!(
+                "{}: ${:.2} x {:.4} = ${:.2}",
+                symbol, 1.0, quantity, quantity
+            ));
 
             if symbol == "USD" {
                 total_value += quantity;
@@ -566,7 +628,10 @@ async fn build_portfolio_display(
                 match map.get(&forex_key) {
                     Some(forex_price) if *forex_price != 0.0 => {
                         let converted_value = quantity / forex_price;
-                        lines.push(format!("  (Converted to USD): ${:.2} / {:.4} = ${:.2}", quantity, forex_price, converted_value));
+                        lines.push(format!(
+                            "  (Converted to USD): ${:.2} / {:.4} = ${:.2}",
+                            quantity, forex_price, converted_value
+                        ));
                         total_value += converted_value;
                     }
                     _ => lines.push(format!("  Cannot get forex rate for {}", symbol)),
@@ -625,7 +690,11 @@ pub async fn polling_stream(prices: SharedPriceMap, cycle: u64, portfolio: Share
                                         tokio::time::sleep(delay).await;
                                         delay *= 2;
                                     } else {
-                                        crate::log_line!("Failed to get price for {}: {}", symbol, e);
+                                        crate::log_line!(
+                                            "Failed to get price for {}: {}",
+                                            symbol,
+                                            e
+                                        );
                                         break None;
                                     }
                                 }
@@ -673,10 +742,10 @@ mod tests {
     fn forex_holdings_and_display_currency_are_collected_without_usd() {
         let p = portfolio(&[("Forex", "USD"), ("Forex", "TWD"), ("US-Stock", "AAPL")]);
         // USD is the base currency and must never appear; TWD held as cash does.
-        assert_eq!(required_forex_pairs(&p, "EUR"), vec![
-            "USD/EUR".to_string(),
-            "USD/TWD".to_string(),
-        ]);
+        assert_eq!(
+            required_forex_pairs(&p, "EUR"),
+            vec!["USD/EUR".to_string(), "USD/TWD".to_string(),]
+        );
     }
 
     #[test]
@@ -689,12 +758,9 @@ mod tests {
     async fn tw_stock_zero_rate_yields_finite_total() {
         let p = portfolio(&[("TW-Stock", "2330")]);
         // Price present but rate is 0.0 — must not produce Infinity.
-        let map: HashMap<String, f64> = [
-            ("2330".to_string(), 100.0),
-            ("USD/TWD".to_string(), 0.0),
-        ]
-        .into_iter()
-        .collect();
+        let map: HashMap<String, f64> = [("2330".to_string(), 100.0), ("USD/TWD".to_string(), 0.0)]
+            .into_iter()
+            .collect();
         let (lines, total) = build_portfolio_display(&map, &p).await;
         assert!(total.is_finite(), "total_value must be finite, got {total}");
         assert!(

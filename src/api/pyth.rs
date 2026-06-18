@@ -8,9 +8,9 @@ use launchdarkly_sdk_transport::HyperTransport;
 use futures::StreamExt;
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
-use tokio::sync::Mutex;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use tokio::sync::Mutex;
 
 /// The Pyth feed-id table, compiled into the binary so no external file is
 /// needed at runtime and the TOML is parsed exactly once (not per lookup).
@@ -90,7 +90,10 @@ pub async fn get_history_from_pyth(
                 .collect();
             Ok(series)
         }
-        _ => Err(format!("[Pyth] Malformed history response for {}", tv_symbol)),
+        _ => Err(format!(
+            "[Pyth] Malformed history response for {}",
+            tv_symbol
+        )),
     }
 }
 
@@ -127,7 +130,10 @@ impl PriceContainer for HashMap<String, f64> {
 ///
 /// # 範例
 /// pyth_stream::subscribe_price_stream("0xe62d...", |price| println!("價格: {}", price)).await;
-pub async fn get_price_stream_from_pyth<F>(id: &str, mut on_price: F) -> Result<(), Box<dyn std::error::Error>>
+pub async fn get_price_stream_from_pyth<F>(
+    id: &str,
+    mut on_price: F,
+) -> Result<(), Box<dyn std::error::Error>>
 where
     F: FnMut(f64) + Send + 'static,
 {
@@ -196,8 +202,14 @@ mod tests {
     #[test]
     fn test_pyth_tv_symbol() {
         assert_eq!(pyth_tv_symbol("eth", "Crypto").unwrap(), "Crypto.ETH/USD");
-        assert_eq!(pyth_tv_symbol("aapl", "US-Stock").unwrap(), "Equity.US.AAPL/USD");
-        assert_eq!(pyth_tv_symbol("QQQ", "US-ETF").unwrap(), "Equity.US.QQQ/USD");
+        assert_eq!(
+            pyth_tv_symbol("aapl", "US-Stock").unwrap(),
+            "Equity.US.AAPL/USD"
+        );
+        assert_eq!(
+            pyth_tv_symbol("QQQ", "US-ETF").unwrap(),
+            "Equity.US.QQQ/USD"
+        );
         assert_eq!(pyth_tv_symbol("TWD", "Forex").unwrap(), "FX.USD/TWD");
         assert!(pyth_tv_symbol("2330", "TW-Stock").is_none());
     }
@@ -280,11 +292,8 @@ where
 /// Resolves the feed id via [`get_pyth_feed_id`]; if no feed exists for the
 /// holding the task logs and exits, otherwise it runs [`stream_into_map`]
 /// (reconnecting indefinitely). Returns immediately.
-pub fn spawn_price_stream<C>(
-    symbol: &str,
-    category: &str,
-    prices: Arc<Mutex<C>>,
-) where
+pub fn spawn_price_stream<C>(symbol: &str, category: &str, prices: Arc<Mutex<C>>)
+where
     C: PriceContainer + Send + 'static,
 {
     let symbol = symbol.to_string();

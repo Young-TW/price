@@ -39,7 +39,8 @@ pub fn read_api_keys(path: &str) -> Result<HashMap<String, String>, String> {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(HashMap::new()),
         Err(e) => return Err(format!("Failed to read file: {}", e)),
     };
-    let keys: ApiKeys = toml::from_str(&content).map_err(|e| format!("Failed to parse TOML: {}", e))?;
+    let keys: ApiKeys =
+        toml::from_str(&content).map_err(|e| format!("Failed to parse TOML: {}", e))?;
     Ok(keys.0)
 }
 
@@ -49,8 +50,10 @@ pub fn read_api_keys(path: &str) -> Result<HashMap<String, String>, String> {
 /// `target` field is missing or not a string.
 pub fn read_target_forex(path: &str) -> Result<String, String> {
     let content = fs::read_to_string(path).map_err(|e| format!("Failed to read file: {}", e))?;
-    let value: toml::Value = toml::from_str(&content).map_err(|e| format!("Failed to parse TOML: {}", e))?;
-    value.get("target")
+    let value: toml::Value =
+        toml::from_str(&content).map_err(|e| format!("Failed to parse TOML: {}", e))?;
+    value
+        .get("target")
         .and_then(|v| v.as_str())
         .map(String::from)
         .ok_or_else(|| "Target field not found".to_string())
@@ -64,7 +67,8 @@ pub fn read_target_forex_or_default(path: &str) -> String {
         Err(e) => {
             crate::log_line!(
                 "[config] {} not usable ({}); defaulting target forex to USD",
-                path, e
+                path,
+                e
             );
             "USD".to_string()
         }

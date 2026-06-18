@@ -52,7 +52,8 @@ pub async fn get_price_from_twse(symbol: &str) -> Result<f64, String> {
 
         // Use last traded price if available
         if stock.z != "-" {
-            stock.z
+            stock
+                .z
                 .parse::<f64>()
                 .map_err(|_| "[TWSE] Failed to parse price as float".to_string())
         } else {
@@ -68,7 +69,8 @@ pub async fn get_price_from_twse(symbol: &str) -> Result<f64, String> {
                 }
                 _ => {
                     // Use previous close if ask and bid cannot be parsed
-                    stock.y
+                    stock
+                        .y
                         .parse::<f64>()
                         .map_err(|_| "[TWSE] Failed to parse previous close as float".to_string())
                 }

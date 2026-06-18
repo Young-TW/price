@@ -2,19 +2,19 @@
 //! historical value and allocation-ratio charts.
 
 use ratatui::{
-    widgets::{Block, Paragraph, Borders, Axis, Chart, Dataset, GraphType},
-    symbols,
     Terminal,
     backend::CrosstermBackend,
-    style::{Style, Color},
-    text::{Span, Line},
-    layout::{Layout, Constraint, Direction},
+    layout::{Constraint, Direction, Layout},
+    style::{Color, Style},
+    symbols,
+    text::{Line, Span},
+    widgets::{Axis, Block, Borders, Chart, Dataset, GraphType, Paragraph},
 };
 
-use std::collections::HashMap;
-use chrono::{TimeZone, Utc};
 use crate::history::compute_category_values;
 use crate::types::{Portfolio, PortfolioSnapshot};
+use chrono::{TimeZone, Utc};
+use std::collections::HashMap;
 
 /// Which screen the TUI is currently showing.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -64,50 +64,54 @@ pub fn render_portfolio(
     view_mode: ViewMode,
 ) {
     if view_mode == ViewMode::History {
-        terminal.draw(|f| render_history(f, f.area(), history)).unwrap();
+        terminal
+            .draw(|f| render_history(f, f.area(), history))
+            .unwrap();
         return;
     }
 
-    terminal.draw(|f| {
-        let area = f.area();
+    terminal
+        .draw(|f| {
+            let area = f.area();
 
-        // Split screen into upper (portfolio) and lower (asset allocation)
-        let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Percentage(70), // Upper 70%
-                Constraint::Percentage(30), // Lower 30%
-            ])
-            .split(area);
+            // Split screen into upper (portfolio) and lower (asset allocation)
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Percentage(70), // Upper 70%
+                    Constraint::Percentage(30), // Lower 30%
+                ])
+                .split(area);
 
-        // Upper part: Portfolio display
-        let mut display_lines: Vec<Line> = lines
-            .iter()
-            .map(|line| Line::from(Span::raw(line.clone())))
-            .collect();
+            // Upper part: Portfolio display
+            let mut display_lines: Vec<Line> = lines
+                .iter()
+                .map(|line| Line::from(Span::raw(line.clone())))
+                .collect();
 
-        display_lines.push(Line::from(Span::styled(
-            format!("Total assets (USD): ${:.2}", total_value),
-            Style::default().fg(Color::Green)
-        )));
-
-        if let Some(forex_price) = map.get(&format!("USD/{}", target_forex)) {
-            let converted_value = total_value * forex_price;
             display_lines.push(Line::from(Span::styled(
-                format!("Total assets ({}): ${:.2}", target_forex, converted_value),
-                Style::default().fg(Color::Green)
+                format!("Total assets (USD): ${:.2}", total_value),
+                Style::default().fg(Color::Green),
             )));
-        }
 
-        let portfolio_block = Block::default()
-            .title("Portfolio (Tab: history  e: export csv  q: quit)")
-            .borders(Borders::ALL);
-        let portfolio_paragraph = Paragraph::new(display_lines).block(portfolio_block);
-        f.render_widget(portfolio_paragraph, chunks[0]);
+            if let Some(forex_price) = map.get(&format!("USD/{}", target_forex)) {
+                let converted_value = total_value * forex_price;
+                display_lines.push(Line::from(Span::styled(
+                    format!("Total assets ({}): ${:.2}", target_forex, converted_value),
+                    Style::default().fg(Color::Green),
+                )));
+            }
 
-        // Lower part: Asset allocation
-        render_asset_allocation(f, chunks[1], portfolio, map, total_value);
-    }).unwrap();
+            let portfolio_block = Block::default()
+                .title("Portfolio (Tab: history  e: export csv  q: quit)")
+                .borders(Borders::ALL);
+            let portfolio_paragraph = Paragraph::new(display_lines).block(portfolio_block);
+            f.render_widget(portfolio_paragraph, chunks[0]);
+
+            // Lower part: Asset allocation
+            render_asset_allocation(f, chunks[1], portfolio, map, total_value);
+        })
+        .unwrap();
 }
 
 fn render_asset_allocation(
@@ -123,9 +127,8 @@ fn render_asset_allocation(
 
     // Sort categories by value (largest to smallest), dropping any non-finite
     // values (NaN or Infinity) so the sort never receives a None from partial_cmp.
-    let mut sorted_categories: Vec<(&str, f64)> = categories.iter()
-        .map(|(k, &v)| (k.as_str(), v))
-        .collect();
+    let mut sorted_categories: Vec<(&str, f64)> =
+        categories.iter().map(|(k, &v)| (k.as_str(), v)).collect();
     sorted_categories.retain(|(_, v)| v.is_finite());
     sorted_categories.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
@@ -134,7 +137,11 @@ fn render_asset_allocation(
     let mut bars_data = Vec::new();
 
     for (i, (category, value)) in sorted_categories.iter().enumerate() {
-        let percentage = if total_value > 0.0 { value / total_value * 100.0 } else { 0.0 };
+        let percentage = if total_value > 0.0 {
+            value / total_value * 100.0
+        } else {
+            0.0
+        };
         let color = colors[i % colors.len()];
 
         allocation_lines.push(Line::from(vec![
@@ -150,7 +157,7 @@ fn render_asset_allocation(
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(allocation_lines.len() as u16 + 2), // Text area
-            Constraint::Length(3), // Single combined bar area
+            Constraint::Length(3),                                 // Single combined bar area
         ])
         .split(area);
 
@@ -221,7 +228,11 @@ fn date_labels(x_min: f64, x_max: f64) -> Vec<Span<'static>> {
             .unwrap_or_default()
     };
     let mid = (x_min + x_max) / 2.0;
-    vec![Span::raw(fmt(x_min)), Span::raw(fmt(mid)), Span::raw(fmt(x_max))]
+    vec![
+        Span::raw(fmt(x_min)),
+        Span::raw(fmt(mid)),
+        Span::raw(fmt(x_max)),
+    ]
 }
 
 fn render_total_value_chart(
@@ -254,7 +265,11 @@ fn render_total_value_chart(
                 .title("Total Value History (USD)  Tab: live  q: quit")
                 .borders(Borders::ALL),
         )
-        .x_axis(Axis::default().bounds([x_min, x_max]).labels(date_labels(x_min, x_max)))
+        .x_axis(
+            Axis::default()
+                .bounds([x_min, x_max])
+                .labels(date_labels(x_min, x_max)),
+        )
         .y_axis(Axis::default().bounds([0.0, y_hi]).labels(vec![
             Span::raw("$0".to_string()),
             Span::raw(format!("${:.0}", y_hi / 2.0)),
@@ -315,7 +330,11 @@ fn render_ratio_chart(
                 .title("Allocation Ratio History (%)")
                 .borders(Borders::ALL),
         )
-        .x_axis(Axis::default().bounds([x_min, x_max]).labels(date_labels(x_min, x_max)))
+        .x_axis(
+            Axis::default()
+                .bounds([x_min, x_max])
+                .labels(date_labels(x_min, x_max)),
+        )
         .y_axis(Axis::default().bounds([0.0, 100.0]).labels(vec![
             Span::raw("0%"),
             Span::raw("50%"),
@@ -342,10 +361,7 @@ mod tests {
     /// contains NaN values (price * quantity produces NaN for that asset).
     #[test]
     fn render_asset_allocation_nan_price_does_not_panic() {
-        let portfolio = Portfolio(vec![
-            item("BTC", "Crypto", 1.0),
-            item("ETH", "Crypto", 2.0),
-        ]);
+        let portfolio = Portfolio(vec![item("BTC", "Crypto", 1.0), item("ETH", "Crypto", 2.0)]);
 
         let mut map = HashMap::new();
         map.insert("BTC".to_string(), f64::NAN);
@@ -353,26 +369,28 @@ mod tests {
 
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).unwrap();
-        terminal.draw(|f| {
-            render_asset_allocation(f, f.area(), &portfolio, &map, 2000.0);
-        }).unwrap();
+        terminal
+            .draw(|f| {
+                render_asset_allocation(f, f.area(), &portfolio, &map, 2000.0);
+            })
+            .unwrap();
     }
 
     /// Verifies that non-finite category values (NaN, Infinity) are stripped
     /// before sorting so the sort never receives a None from partial_cmp.
     #[test]
     fn render_asset_allocation_infinity_does_not_panic() {
-        let portfolio = Portfolio(vec![
-            item("AAPL", "US-Stock", 10.0),
-        ]);
+        let portfolio = Portfolio(vec![item("AAPL", "US-Stock", 10.0)]);
 
         let mut map = HashMap::new();
         map.insert("AAPL".to_string(), f64::INFINITY);
 
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).unwrap();
-        terminal.draw(|f| {
-            render_asset_allocation(f, f.area(), &portfolio, &map, 0.0);
-        }).unwrap();
+        terminal
+            .draw(|f| {
+                render_asset_allocation(f, f.area(), &portfolio, &map, 0.0);
+            })
+            .unwrap();
     }
 }

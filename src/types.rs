@@ -1,8 +1,8 @@
 //! Core data types: the portfolio holdings model, historical snapshots and the
 //! API response/key structures used across the crate.
 
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// A flat list of portfolio holdings.
 ///
@@ -56,7 +56,9 @@ impl Portfolio {
     pub fn group_by_category(&self) -> HashMap<String, Vec<PortfolioItem>> {
         let mut map: HashMap<String, Vec<PortfolioItem>> = HashMap::new();
         for item in &self.0 {
-            map.entry(item.category.clone()).or_default().push(item.clone());
+            map.entry(item.category.clone())
+                .or_default()
+                .push(item.clone());
         }
         map
     }

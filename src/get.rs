@@ -35,7 +35,6 @@ pub async fn get_price(symbol: &str, category: &str) -> Result<f64, String> {
                 symbol
             ));
         } */
-
         "US-Stock" | "US-ETF" => {
             /*
             if let Ok(price) = get_price_from_pyth(symbol).await {
@@ -141,7 +140,12 @@ mod tests {
 
         for (symbol, category) in [("2330", "TW-Stock"), ("0050", "TW-ETF")] {
             let series = get_history(symbol, category, from, to).await.unwrap();
-            assert!(!series.is_empty(), "{} ({}) returned no history", symbol, category);
+            assert!(
+                !series.is_empty(),
+                "{} ({}) returned no history",
+                symbol,
+                category
+            );
             for (ts, _) in &series {
                 assert!(*ts >= from, "{}: timestamp {} < from {}", symbol, ts, from);
                 assert!(*ts <= to, "{}: timestamp {} > to {}", symbol, ts, to);

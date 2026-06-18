@@ -12,9 +12,9 @@ mod get;
 mod history;
 mod logging;
 mod paths;
+mod stream;
 mod tui;
 mod types;
-mod stream;
 
 #[tokio::main]
 async fn main() {
