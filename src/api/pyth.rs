@@ -1,3 +1,6 @@
+//! Pyth Network price source: real-time SSE price streams and Pyth Benchmarks
+//! historical data.
+
 use eventsource_client::Client as EventSourceClient; // 避免與 reqwest::Client 衝突
 use eventsource_client::{ClientBuilder, SSE};
 use launchdarkly_sdk_transport::HyperTransport;
@@ -91,7 +94,12 @@ pub async fn get_history_from_pyth(
     }
 }
 
+/// A collection of `(symbol, price)` entries that a price stream can write into.
+///
+/// Implemented for both `Vec<(String, f64)>` and `HashMap<String, f64>` so the
+/// streaming code can update either an ordered list or a keyed map.
 pub trait PriceContainer {
+    /// Set `symbol` to `price`, replacing any existing entry for that symbol.
     fn update(&mut self, symbol: String, price: f64);
 }
 
@@ -161,6 +169,12 @@ where
     Ok(())
 }
 
+/// Look up the Pyth price-feed id for `(symbol, category)` in the bundled feed
+/// table.
+///
+/// `symbol` is upper-cased before lookup. Returns an `Err` string if the
+/// category is absent from the table, the symbol is absent within it, or the
+/// stored id is not a string.
 pub fn get_pyth_feed_id(symbol: &str, category: &str) -> Result<String, String> {
     let target = symbol.to_uppercase();
     let feeds = PYTH_FEEDS
@@ -260,6 +274,12 @@ where
     }
 }
 
+/// Spawn a background task that streams live prices for `(symbol, category)`
+/// into `prices`, keyed by `symbol`.
+///
+/// Resolves the feed id via [`get_pyth_feed_id`]; if no feed exists for the
+/// holding the task logs and exits, otherwise it runs [`stream_into_map`]
+/// (reconnecting indefinitely). Returns immediately.
 pub fn spawn_price_stream<C>(
     symbol: &str,
     category: &str,

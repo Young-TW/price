@@ -1,3 +1,6 @@
+//! Category-aware price and history lookup that selects and falls back across
+//! the provider APIs.
+
 // use crate::api::alpha_vantage::get_price_from_alpha_vantage;
 // use crate::api::binance::get_price_from_binance;
 use crate::api::pyth::{get_history_from_pyth, pyth_tv_symbol};
@@ -5,6 +8,11 @@ use crate::api::redstone::get_price_from_redstone;
 use crate::api::twse::get_price_from_twse;
 use crate::api::yahoo::{get_history_from_yahoo_range, get_price_from_yahoo};
 
+/// Fetch the current price of `symbol` for the given asset `category`.
+///
+/// `US-Stock`/`US-ETF` try RedStone then Yahoo; `TW-Stock`/`TW-ETF` try TWSE
+/// then Yahoo. Returns an `Err` string for an unknown category, for `Crypto`
+/// (currently disabled), or when every source for the category fails.
 pub async fn get_price(symbol: &str, category: &str) -> Result<f64, String> {
     match category {
         /*

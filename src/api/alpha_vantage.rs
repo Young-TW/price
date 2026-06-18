@@ -1,3 +1,5 @@
+//! Alpha Vantage price source.
+
 use crate::config::read_api_keys;
 use crate::types::PriceResponse;
 

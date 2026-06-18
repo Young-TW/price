@@ -1,3 +1,6 @@
+//! Portfolio snapshot history: computing category values, recording snapshots
+//! to the JSONL store, loading them back and exporting to CSV.
+
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;

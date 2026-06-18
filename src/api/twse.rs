@@ -1,3 +1,5 @@
+//! Taiwan Stock Exchange (TWSE) price source.
+
 use reqwest::Client;
 use serde::Deserialize;
 
@@ -15,6 +17,12 @@ struct TwseStock {
     y: String, // Previous close
 }
 
+/// Fetch the current price of TWSE-listed stock `symbol` (e.g. `2330`).
+///
+/// Uses the last traded price when available; if it is `"-"`, falls back to the
+/// geometric mean of the best ask and bid, and if those cannot be parsed, to the
+/// previous close. Returns an `Err` string on request, HTTP, JSON, missing-data
+/// or parse failure.
 pub async fn get_price_from_twse(symbol: &str) -> Result<f64, String> {
     let pair = format!("tse_{}.tw", symbol);
     let url = format!(
@@ -71,6 +79,10 @@ pub async fn get_price_from_twse(symbol: &str) -> Result<f64, String> {
     }
 }
 
+/// Fetch the previous-close price of TWSE-listed stock `symbol`.
+///
+/// Returns the previous close (the `y` field), or an `Err` string on request,
+/// HTTP, JSON, missing-data or parse failure.
 pub async fn get_close_price_from_twse(symbol: &str) -> Result<f64, String> {
     let pair = format!("tse_{}.tw", symbol);
     let url = format!(

@@ -1,3 +1,5 @@
+//! RedStone price source.
+
 use reqwest::Client;
 use serde::Deserialize;
 
@@ -6,6 +8,11 @@ struct RedstonePrice {
     value: f64,
 }
 
+/// Fetch the latest price for `symbol` from RedStone.
+///
+/// `symbol` is upper-cased before querying. Returns the most recent price value,
+/// or an `Err` string on request, HTTP or JSON failure, or when RedStone returns
+/// no price data for the symbol.
 pub async fn get_price_from_redstone(symbol: &str) -> Result<f64, String> {
     let symbol = symbol.to_uppercase();
     let url = format!(

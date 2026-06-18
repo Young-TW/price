@@ -1,3 +1,5 @@
+//! Binance spot price source.
+
 use reqwest::Client;
 use serde::Deserialize;
 
@@ -6,6 +8,11 @@ struct BinancePrice {
     price: String,
 }
 
+/// Fetch the latest spot price for `symbol` quoted in USDT.
+///
+/// `symbol` is upper-cased and suffixed with `USDT` to form the Binance trading
+/// pair (e.g. `BTC` queries `BTCUSDT`). Returns the parsed price, or an `Err`
+/// string describing a request, HTTP, JSON or parse failure.
 pub async fn get_price_from_binance(symbol: &str) -> Result<f64, String> {
     let pair = format!("{}USDT", symbol.to_uppercase());
     let url = format!("https://api.binance.com/api/v3/ticker/price?symbol={}", pair);

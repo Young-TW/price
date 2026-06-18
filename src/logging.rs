@@ -1,3 +1,6 @@
+//! Process-wide file logging that degrades to a silent no-op when the log file
+//! cannot be opened, so diagnostics never corrupt the TUI.
+
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::Path;
@@ -37,7 +40,7 @@ pub fn init() {
     });
 }
 
-/// Append one timestamped line to the log file. Used by the [`log_line!`] macro;
+/// Append one timestamped line to the log file. Used by the [`crate::log_line!`] macro;
 /// prefer the macro at call sites.
 pub fn write_line(args: std::fmt::Arguments<'_>) {
     let Some(Some(lock)) = LOG.get() else {
