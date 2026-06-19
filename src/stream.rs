@@ -532,7 +532,7 @@ async fn run_display_loop<B: ratatui::backend::Backend>(
         let portfolio = portfolio.read().await.clone();
         let target_forex = target_forex.read().await.clone();
         let map = prices.lock().await;
-        let (lines, total_value) = build_portfolio_display(&map, &portfolio).await;
+        let (lines, total_value) = build_portfolio_display(&map, &portfolio);
 
         // Borrow the history under its lock for the synchronous draw instead of
         // cloning the whole (unbounded) Vec every frame. The draw holds no
@@ -556,7 +556,7 @@ async fn run_display_loop<B: ratatui::backend::Backend>(
     }
 }
 
-async fn build_portfolio_display(
+fn build_portfolio_display(
     map: &HashMap<String, f64>,
     portfolio: &Portfolio,
 ) -> (Vec<String>, f64) {
@@ -769,7 +769,7 @@ mod tests {
         let map: HashMap<String, f64> = [("2330".to_string(), 100.0), ("USD/TWD".to_string(), 0.0)]
             .into_iter()
             .collect();
-        let (lines, total) = build_portfolio_display(&map, &p).await;
+        let (lines, total) = build_portfolio_display(&map, &p);
         assert!(total.is_finite(), "total_value must be finite, got {total}");
         assert!(
             lines.iter().any(|l| l.contains("[Warning]")),
@@ -782,7 +782,7 @@ mod tests {
         let p = portfolio(&[("TW-Stock", "2330")]);
         // Rate key entirely absent — must not produce Infinity.
         let map: HashMap<String, f64> = [("2330".to_string(), 100.0)].into_iter().collect();
-        let (lines, total) = build_portfolio_display(&map, &p).await;
+        let (lines, total) = build_portfolio_display(&map, &p);
         assert!(total.is_finite(), "total_value must be finite, got {total}");
         assert!(
             lines.iter().any(|l| l.contains("[Warning]")),
@@ -795,7 +795,7 @@ mod tests {
         let p = portfolio(&[("Forex", "TWD")]);
         // Forex rate is 0.0 — must not produce Infinity.
         let map: HashMap<String, f64> = [("USD/TWD".to_string(), 0.0)].into_iter().collect();
-        let (_, total) = build_portfolio_display(&map, &p).await;
+        let (_, total) = build_portfolio_display(&map, &p);
         assert!(total.is_finite(), "total_value must be finite, got {total}");
     }
 
@@ -804,7 +804,7 @@ mod tests {
         let p = portfolio(&[("Forex", "TWD")]);
         // Forex rate key absent — must not produce Infinity.
         let map: HashMap<String, f64> = HashMap::new();
-        let (_, total) = build_portfolio_display(&map, &p).await;
+        let (_, total) = build_portfolio_display(&map, &p);
         assert!(total.is_finite(), "total_value must be finite, got {total}");
     }
 
@@ -818,6 +818,28 @@ mod tests {
     /// real TTY (a `CrosstermBackend` on stdout fails with `WouldBlock` in CI).
     /// `event::poll`/`event::read` still hit the absent real stdin and error,
     /// which is exactly the path this fix must survive.
+    /// Regression test for issue #9 (criterion 2): `build_portfolio_display` must
+    /// be a plain `fn`, not `async fn`.  The function contains no `.await`
+    /// expressions, so declaring it `async fn` is a footgun: callers must use
+    /// `.await`, which keeps any `MutexGuard` borrow alive across that await point
+    /// and blocks every concurrent price writer for the entire render frame.
+    ///
+    /// This test is intentionally placed in a non-async (`#[test]`) context.
+    /// When `build_portfolio_display` is still `async fn`, calling it without
+    /// `.await` yields `impl Future<Output = (Vec<String>, f64)>`, not
+    /// `(Vec<String>, f64)`, so the explicit type annotation below is a
+    /// compile-time type-mismatch error — i.e. the test fails on the buggy code
+    /// as intended.
+    #[test]
+    fn build_portfolio_display_is_not_async_fn() {
+        let map: HashMap<String, f64> = HashMap::new();
+        let p = portfolio(&[]);
+        // Compiles only when build_portfolio_display is a plain `fn`.
+        // If it is still `async fn`, this is a type-mismatch compile error:
+        //   expected `(Vec<String>, f64)`, found opaque type (Future).
+        let _: (Vec<String>, f64) = build_portfolio_display(&map, &p);
+    }
+
     #[tokio::test]
     async fn display_loop_survives_event_poll_io_error() {
         use ratatui::backend::TestBackend;
