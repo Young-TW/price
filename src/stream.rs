@@ -491,8 +491,8 @@ fn install_panic_hook() {
     }));
 }
 
-async fn run_display_loop(
-    terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
+async fn run_display_loop<B: ratatui::backend::Backend>(
+    terminal: &mut Terminal<B>,
     prices: &SharedPriceMap,
     history: &SharedHistory,
     portfolio: &SharedPortfolio,
@@ -503,9 +503,13 @@ async fn run_display_loop(
     loop {
         // Handle key presses: 'q' quits, Tab toggles between the main (live)
         // page and the history page; 'h'/'l' remain as explicit shortcuts.
-        if event::poll(Duration::from_millis(10)).unwrap() {
-            if let Event::Key(key_event) = event::read().unwrap() {
-                match key_event.code {
+        //
+        // `event::poll`/`event::read` can fail with an I/O error (stdin closed,
+        // terminal disconnected, or a non-interactive environment). Treat that as
+        // "no input this tick" and continue rather than unwrapping and crashing.
+        match event::poll(Duration::from_millis(10)) {
+            Ok(true) => match event::read() {
+                Ok(Event::Key(key_event)) => match key_event.code {
                     KeyCode::Char('q') => break,
                     KeyCode::Tab => view_mode = view_mode.toggle(),
                     KeyCode::Char('h') => view_mode = ViewMode::History,
@@ -517,8 +521,12 @@ async fn run_display_loop(
                         }
                     }
                     _ => {}
-                }
-            }
+                },
+                Ok(_) => {}
+                Err(e) => crate::log_line!("[input] read failed: {}", e),
+            },
+            Ok(false) => {}
+            Err(e) => crate::log_line!("[input] poll failed: {}", e),
         }
 
         let portfolio = portfolio.read().await.clone();
@@ -798,5 +806,48 @@ mod tests {
         let map: HashMap<String, f64> = HashMap::new();
         let (_, total) = build_portfolio_display(&map, &p).await;
         assert!(total.is_finite(), "total_value must be finite, got {total}");
+    }
+
+    /// Regression test for issue #13: the display loop must not panic when
+    /// `event::poll`/`event::read` return an I/O error (stdin closed, terminal
+    /// disconnected, or a non-interactive CI runner). Expected behaviour: handle
+    /// the error gracefully — skip the tick and keep going — rather than
+    /// unwrapping and crashing. The buggy code unwrapped and panicked.
+    ///
+    /// Uses a headless `TestBackend` so constructing the terminal never touches a
+    /// real TTY (a `CrosstermBackend` on stdout fails with `WouldBlock` in CI).
+    /// `event::poll`/`event::read` still hit the absent real stdin and error,
+    /// which is exactly the path this fix must survive.
+    #[tokio::test]
+    async fn display_loop_survives_event_poll_io_error() {
+        use ratatui::backend::TestBackend;
+
+        let prices: SharedPriceMap = Arc::new(Mutex::new(HashMap::new()));
+        let history: SharedHistory = Arc::new(Mutex::new(Vec::new()));
+        let portfolio: SharedPortfolio = Arc::new(RwLock::new(Portfolio(vec![])));
+        let target_forex: SharedTargetForex = Arc::new(RwLock::new("USD".to_string()));
+        let mut terminal =
+            Terminal::new(TestBackend::new(80, 24)).expect("construct headless test terminal");
+
+        let handle = tokio::spawn(async move {
+            run_display_loop(&mut terminal, &prices, &history, &portfolio, &target_forex).await;
+        });
+
+        // Give the loop time to hit the failing event::poll path several times.
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        if handle.is_finished() {
+            // Returned on its own (e.g. a graceful break): fine as long as no panic.
+            let result = handle.await;
+            assert!(
+                result.is_ok(),
+                "display loop panicked on an event::poll/read I/O error instead of \
+                 handling it gracefully: {:?}",
+                result.err()
+            );
+        } else {
+            // Still running after repeated I/O errors: it survived without crashing.
+            handle.abort();
+        }
     }
 }
