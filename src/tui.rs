@@ -3,7 +3,7 @@
 
 use ratatui::{
     Terminal,
-    backend::CrosstermBackend,
+    backend::Backend,
     layout::{Constraint, Direction, Layout},
     style::{Color, Style},
     symbols,
@@ -53,8 +53,8 @@ const PALETTE: [Color; 6] = [
 /// Otherwise it draws the portfolio lines plus the total value in USD (and, when
 /// a `USD/<target_forex>` rate is present in `map`, the total converted to the
 /// target currency), with the asset-allocation panel below.
-pub fn render_portfolio(
-    terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
+pub fn render_portfolio<B: Backend>(
+    terminal: &mut Terminal<B>,
     lines: &[String],
     total_value: f64,
     map: &HashMap<String, f64>,
