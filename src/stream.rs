@@ -45,15 +45,16 @@ const BACKFILL_WINDOW_SECS: i64 = 365 * 86_400;
 /// How often the config files are checked for changes (seconds).
 const CONFIG_POLL_SECS: u64 = 2;
 
-/// Check if Taiwan Stock Exchange (TWSE) market is currently open
-/// TWSE trading hours: 09:00 - 13:30 (Monday to Friday)
-fn is_twse_market_open() -> bool {
-    let now = Local::now().with_timezone(&Taipei);
-    let weekday = now.weekday();
-
-    // Only open on weekdays (Monday to Friday)
+/// Returns `true` if `dt` (interpreted in its own timezone) falls within TWSE
+/// trading hours: Monday–Friday, 09:00–13:29 inclusive.
+///
+/// Callers are responsible for supplying a `DateTime` already converted to
+/// Asia/Taipei. In production `is_twse_market_open` does this; in tests a
+/// fixed Taipei `DateTime` is injected directly, making tests deterministic
+/// without mocking system time.
+fn is_twse_market_open_at<Tz: chrono::TimeZone>(dt: chrono::DateTime<Tz>) -> bool {
     if !matches!(
-        weekday,
+        dt.weekday(),
         chrono::Weekday::Mon
             | chrono::Weekday::Tue
             | chrono::Weekday::Wed
@@ -63,13 +64,17 @@ fn is_twse_market_open() -> bool {
         return false;
     }
 
-    let hour = now.hour();
-    let minute = now.minute();
-    let current_time = hour * 60 + minute; // Convert to minutes since midnight
+    let current_time = dt.hour() * 60 + dt.minute();
     let open_time = 9 * 60; // 09:00
     let close_time = 13 * 60 + 30; // 13:30
 
     current_time >= open_time && current_time < close_time
+}
+
+/// Check if Taiwan Stock Exchange (TWSE) market is currently open.
+/// TWSE trading hours: 09:00–13:30 (Monday–Friday) in Asia/Taipei.
+fn is_twse_market_open() -> bool {
+    is_twse_market_open_at(Local::now().with_timezone(&Taipei))
 }
 
 /// Run the application: start the background price/snapshot/reload tasks, set up
@@ -838,6 +843,103 @@ mod tests {
         // If it is still `async fn`, this is a type-mismatch compile error:
         //   expected `(Vec<String>, f64)`, found opaque type (Future).
         let _: (Vec<String>, f64) = build_portfolio_display(&map, &p);
+    }
+
+    // ── is_twse_market_open_at ─────────────────────────────────────────────────
+    //
+    // All dates use Asia/Taipei via Taipei.with_ymd_and_hms so tests are
+    // deterministic and require no network access.
+    //
+    // Calendar reference (verified):
+    //   2024-01-22 Mon · 2024-01-25 Thu · 2024-01-27 Sat · 2024-01-28 Sun
+
+    #[test]
+    fn twse_open_at_exactly_09_00() {
+        let dt = Taipei.with_ymd_and_hms(2024, 1, 22, 9, 0, 0).unwrap();
+        assert!(
+            is_twse_market_open_at(dt),
+            "09:00 Taipei on a Monday must be open"
+        );
+    }
+
+    #[test]
+    fn twse_closed_at_exactly_13_30() {
+        let dt = Taipei.with_ymd_and_hms(2024, 1, 22, 13, 30, 0).unwrap();
+        assert!(
+            !is_twse_market_open_at(dt),
+            "13:30 Taipei (close boundary) must be closed"
+        );
+    }
+
+    #[test]
+    fn twse_open_at_13_29() {
+        let dt = Taipei.with_ymd_and_hms(2024, 1, 22, 13, 29, 0).unwrap();
+        assert!(
+            is_twse_market_open_at(dt),
+            "13:29 Taipei (last open minute) must be open"
+        );
+    }
+
+    #[test]
+    fn twse_closed_on_saturday() {
+        let dt = Taipei.with_ymd_and_hms(2024, 1, 27, 11, 0, 0).unwrap();
+        assert!(
+            !is_twse_market_open_at(dt),
+            "Saturday must be closed regardless of time"
+        );
+    }
+
+    #[test]
+    fn twse_closed_on_sunday() {
+        let dt = Taipei.with_ymd_and_hms(2024, 1, 28, 11, 0, 0).unwrap();
+        assert!(
+            !is_twse_market_open_at(dt),
+            "Sunday must be closed regardless of time"
+        );
+    }
+
+    #[test]
+    fn twse_closed_thursday_at_08_59() {
+        let dt = Taipei.with_ymd_and_hms(2024, 1, 25, 8, 59, 0).unwrap();
+        assert!(
+            !is_twse_market_open_at(dt),
+            "08:59 Taipei on Thursday must be closed (before open)"
+        );
+    }
+
+    /// Verifies that Asia/Taipei is used for both weekday detection and hour
+    /// comparison, not the server's UTC time.
+    ///
+    /// UTC Sunday 2024-01-21 16:00 = Taipei Monday 2024-01-22 00:00.
+    /// UTC Sunday 2024-01-22 01:00 = Taipei Monday 2024-01-22 09:00 (market open).
+    ///
+    /// A buggy implementation that checked trading hours in UTC (01:00) would
+    /// return `false`; the correct implementation uses Taipei time (09:00) and
+    /// returns `true`.  The intermediate UTC-Sunday timestamp shows that the
+    /// weekday check also uses Taipei dates: the same wall-clock moment is a
+    /// Sunday in UTC but a Monday in Taipei.
+    #[test]
+    fn twse_uses_taipei_tz_not_utc() {
+        use chrono::Utc;
+
+        // UTC Sunday 16:00 = Taipei Monday 00:00 — weekday in Taipei, weekend in UTC.
+        // Market is closed (before 09:00) but weekday detection must use Taipei date.
+        let utc_sunday = Utc.with_ymd_and_hms(2024, 1, 21, 16, 0, 0).unwrap();
+        let taipei_monday_midnight = utc_sunday.with_timezone(&Taipei);
+        assert_eq!(taipei_monday_midnight.weekday(), chrono::Weekday::Mon);
+        assert!(
+            !is_twse_market_open_at(taipei_monday_midnight),
+            "Taipei Monday 00:00 must be closed (before market open)"
+        );
+
+        // UTC Monday 01:00 = Taipei Monday 09:00 — exactly at open in Taipei.
+        // A UTC-hours check (01:00) would return false; Taipei (09:00) returns true.
+        let utc_monday_early = Utc.with_ymd_and_hms(2024, 1, 22, 1, 0, 0).unwrap();
+        let taipei_monday_09 = utc_monday_early.with_timezone(&Taipei);
+        assert!(
+            is_twse_market_open_at(taipei_monday_09),
+            "Taipei Monday 09:00 must be open even though UTC is 01:00 (outside UTC market hours)"
+        );
     }
 
     #[tokio::test]
