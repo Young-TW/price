@@ -565,8 +565,11 @@ fn build_portfolio_display(
     map: &HashMap<String, f64>,
     portfolio: &Portfolio,
 ) -> (Vec<String>, f64) {
+    // Delegate USD valuation to the single source of truth so the total here
+    // always matches the allocation bar chart (which also calls this function).
+    let (_, total_value) = history::compute_category_values(portfolio, map);
+
     let mut lines = vec![];
-    let mut total_value = 0.0;
 
     // Get grouped categories and sort for stable ordering
     let mut categories: Vec<_> = portfolio.group_by_category().into_iter().collect();
@@ -600,22 +603,14 @@ fn build_portfolio_display(
                                 "  (Converted to USD): ${:.2} / {:.4} = ${:.2}",
                                 asset_value, rate, usd_value
                             ));
-                            total_value += usd_value;
                         }
                         _ => lines.push("  [Warning] USD/TWD rate not available".to_string()),
                     }
-                } else if category == "Crypto" || category == "US-Stock" || category == "US-ETF" {
-                    lines.push(format!(
-                        "{}: ${:.2} x {:.4} = ${:.2}",
-                        symbol, price, amount, asset_value
-                    ));
-                    total_value += asset_value;
                 } else {
                     lines.push(format!(
                         "{}: ${:.2} x {:.4} = ${:.2}",
                         symbol, price, amount, asset_value
                     ));
-                    total_value += asset_value;
                 }
             }
         }
@@ -634,9 +629,7 @@ fn build_portfolio_display(
                 symbol, 1.0, quantity, quantity
             ));
 
-            if symbol == "USD" {
-                total_value += quantity;
-            } else {
+            if symbol != "USD" {
                 let forex_key = format!("USD/{}", symbol);
                 match map.get(&forex_key) {
                     Some(forex_price) if *forex_price != 0.0 => {
@@ -645,7 +638,6 @@ fn build_portfolio_display(
                             "  (Converted to USD): ${:.2} / {:.4} = ${:.2}",
                             quantity, forex_price, converted_value
                         ));
-                        total_value += converted_value;
                     }
                     _ => lines.push(format!("  Cannot get forex rate for {}", symbol)),
                 }
@@ -939,6 +931,113 @@ mod tests {
         assert!(
             is_twse_market_open_at(taipei_monday_09),
             "Taipei Monday 09:00 must be open even though UTC is 01:00 (outside UTC market hours)"
+        );
+    }
+
+    fn item_with_qty(symbol: &str, category: &str, quantity: f64) -> PortfolioItem {
+        PortfolioItem {
+            symbol: symbol.to_string(),
+            category: category.to_string(),
+            quantity,
+        }
+    }
+
+    fn no_nan_or_inf(lines: &[String]) {
+        for line in lines {
+            assert!(!line.contains("NaN"), "NaN in line: {line}");
+            assert!(!line.contains("inf"), "inf in line: {line}");
+            assert!(!line.contains("Inf"), "Inf in line: {line}");
+        }
+    }
+
+    #[test]
+    fn build_display_all_zero_price_map() {
+        // Assets that require a price-map lookup: US-Stock, Crypto, TW-Stock (needs
+        // USD/TWD), non-USD Forex. None of these prices are in the map, so only the
+        // USD cash (which needs no lookup) should contribute to the total.
+        let p = Portfolio(vec![
+            item_with_qty("AAPL", "US-Stock", 10.0),
+            item_with_qty("BTC", "Crypto", 1.0),
+            item_with_qty("2330", "TW-Stock", 100.0),
+            item_with_qty("TWD", "Forex", 3000.0),
+        ]);
+        let (lines, total) = build_portfolio_display(&HashMap::new(), &p);
+        assert_eq!(total, 0.0);
+        no_nan_or_inf(&lines);
+    }
+
+    #[test]
+    fn build_display_tw_stock_missing_twd_rate() {
+        let p = Portfolio(vec![item_with_qty("2330", "TW-Stock", 10.0)]);
+        let mut map = HashMap::new();
+        map.insert("2330".to_string(), 600.0);
+        // USD/TWD absent — total must be 0 and a warning line must appear
+        let (lines, total) = build_portfolio_display(&map, &p);
+        assert_eq!(total, 0.0);
+        assert!(
+            lines.iter().any(|l| l.contains("[Warning]")),
+            "expected a warning line, got: {lines:?}"
+        );
+        no_nan_or_inf(&lines);
+    }
+
+    #[test]
+    fn build_display_non_usd_forex_holding() {
+        let p = Portfolio(vec![item_with_qty("TWD", "Forex", 30000.0)]);
+        let mut map = HashMap::new();
+        map.insert("USD/TWD".to_string(), 30.0);
+        let (lines, total) = build_portfolio_display(&map, &p);
+        // 30 000 TWD / 30 = 1 000 USD
+        assert!(
+            (total - 1000.0).abs() < 1e-6,
+            "expected 1000.0, got {total}"
+        );
+        assert!(lines.iter().any(|l| l.contains("TWD")));
+        no_nan_or_inf(&lines);
+    }
+
+    #[test]
+    fn build_display_mixed_portfolio_all_prices() {
+        let p = Portfolio(vec![
+            item_with_qty("AAPL", "US-Stock", 10.0),
+            item_with_qty("2330", "TW-Stock", 100.0),
+            item_with_qty("USD", "Forex", 500.0),
+            item_with_qty("TWD", "Forex", 3000.0),
+        ]);
+        let mut map = HashMap::new();
+        map.insert("AAPL".to_string(), 200.0); // 10 × 200 = 2000 USD
+        map.insert("2330".to_string(), 600.0); // 100 × 600 TWD / 30 = 2000 USD
+        map.insert("USD/TWD".to_string(), 30.0);
+        // Cash: 500 USD + 3000 TWD / 30 = 600 USD  →  total 4600 USD
+        let (lines, total) = build_portfolio_display(&map, &p);
+        assert!(
+            (total - 4600.0).abs() < 1e-6,
+            "expected 4600.0, got {total}"
+        );
+        assert!(!lines.is_empty());
+        no_nan_or_inf(&lines);
+    }
+
+    #[test]
+    fn build_display_total_matches_compute_category_values() {
+        // The total returned by build_portfolio_display must equal the total
+        // from compute_category_values for the same inputs (single source of truth).
+        let p = Portfolio(vec![
+            item_with_qty("AAPL", "US-Stock", 5.0),
+            item_with_qty("2330", "TW-Stock", 50.0),
+            item_with_qty("EUR", "Forex", 1000.0),
+        ]);
+        let mut map = HashMap::new();
+        map.insert("AAPL".to_string(), 150.0);
+        map.insert("2330".to_string(), 500.0);
+        map.insert("USD/TWD".to_string(), 32.0);
+        map.insert("USD/EUR".to_string(), 1.1);
+
+        let (_, display_total) = build_portfolio_display(&map, &p);
+        let (_, canon_total) = history::compute_category_values(&p, &map);
+        assert!(
+            (display_total - canon_total).abs() < 1e-9,
+            "build_portfolio_display total ({display_total}) != compute_category_values total ({canon_total})"
         );
     }
 
