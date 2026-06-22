@@ -8,6 +8,27 @@ use crate::api::redstone::get_price_from_redstone;
 use crate::api::twse::get_price_from_twse;
 use crate::api::yahoo::{get_history_from_yahoo_range, get_price_from_yahoo};
 
+/// Try `primary`; on failure try `secondary`; if both fail return
+/// `Err(err_msg(symbol))`.
+///
+/// Accepting `AsyncFn` bounds lets callers (and tests) inject any async
+/// callable — a real API function, an async closure stub, or a spy — without
+/// touching the fallback logic.
+async fn get_price_with_fetchers(
+    symbol: &str,
+    primary: impl AsyncFn(&str) -> Result<f64, String>,
+    secondary: impl AsyncFn(&str) -> Result<f64, String>,
+    err_msg: impl Fn(&str) -> String,
+) -> Result<f64, String> {
+    if let Ok(price) = primary(symbol).await {
+        return Ok(price);
+    }
+    if let Ok(price) = secondary(symbol).await {
+        return Ok(price);
+    }
+    Err(err_msg(symbol))
+}
+
 /// Fetch the current price of `symbol` for the given asset `category`.
 ///
 /// `US-Stock`/`US-ETF` try RedStone then Yahoo; `TW-Stock`/`TW-ETF` try TWSE
@@ -36,37 +57,29 @@ pub async fn get_price(symbol: &str, category: &str) -> Result<f64, String> {
             ));
         } */
         "US-Stock" | "US-ETF" => {
-            /*
-            if let Ok(price) = get_price_from_pyth(symbol).await {
-                return Ok(price);
-            }
-            */
-            if let Ok(price) = get_price_from_redstone(symbol).await {
-                return Ok(price);
-            }
-            if let Ok(price) = get_price_from_yahoo(symbol).await {
-                return Ok(price);
-            }
-
-            return Err(format!(
-                "Failed to get US stock price (possibly due to API limit or invalid symbol: {})",
-                symbol
-            ));
+            get_price_with_fetchers(
+                symbol,
+                get_price_from_redstone,
+                get_price_from_yahoo,
+                |s| format!(
+                    "Failed to get US stock price (possibly due to API limit or invalid symbol: {})",
+                    s
+                ),
+            )
+            .await
         }
 
         "TW-Stock" | "TW-ETF" => {
-            if let Ok(price) = get_price_from_twse(symbol).await {
-                return Ok(price);
-            }
-
-            if let Ok(price) = get_price_from_yahoo(symbol).await {
-                return Ok(price);
-            }
-
-            return Err(format!(
-                "Failed to get Taiwan stock price (possibly due to API limit or invalid symbol: {})",
-                symbol
-            ));
+            get_price_with_fetchers(
+                symbol,
+                get_price_from_twse,
+                get_price_from_yahoo,
+                |s| format!(
+                    "Failed to get Taiwan stock price (possibly due to API limit or invalid symbol: {})",
+                    s
+                ),
+            )
+            .await
         }
 
         _ => Err(format!("Unknown asset category: {}", category)),
@@ -151,5 +164,89 @@ mod tests {
                 assert!(*ts <= to, "{}: timestamp {} > to {}", symbol, ts, to);
             }
         }
+    }
+
+    // --- Fallback-chain unit tests (deterministic, no network) ---
+
+    // US-Stock / US-ETF: Redstone → Yahoo
+
+    #[tokio::test]
+    async fn test_us_primary_succeeds_secondary_not_called() {
+        let result = get_price_with_fetchers(
+            "AAPL",
+            async |_s| Ok::<f64, String>(150.0),
+            async |_s| -> Result<f64, String> {
+                panic!("secondary must not be called when primary succeeds")
+            },
+            |s| format!("error: {}", s),
+        )
+        .await;
+        assert_eq!(result, Ok(150.0));
+    }
+
+    #[tokio::test]
+    async fn test_us_primary_fails_secondary_called_and_succeeds() {
+        let result = get_price_with_fetchers(
+            "AAPL",
+            async |_s| -> Result<f64, String> { Err("redstone unavailable".into()) },
+            async |_s| Ok::<f64, String>(200.0),
+            |s| format!("error: {}", s),
+        )
+        .await;
+        assert_eq!(result, Ok(200.0));
+    }
+
+    #[tokio::test]
+    async fn test_us_both_sources_fail_returns_err() {
+        let result = get_price_with_fetchers(
+            "AAPL",
+            async |_s| -> Result<f64, String> { Err("redstone unavailable".into()) },
+            async |_s| -> Result<f64, String> { Err("yahoo unavailable".into()) },
+            |s| format!("Failed to get US stock price for {}", s),
+        )
+        .await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("AAPL"));
+    }
+
+    // TW-Stock / TW-ETF: TWSE → Yahoo
+
+    #[tokio::test]
+    async fn test_tw_primary_succeeds_secondary_not_called() {
+        let result = get_price_with_fetchers(
+            "2330",
+            async |_s| Ok::<f64, String>(600.0),
+            async |_s| -> Result<f64, String> {
+                panic!("secondary must not be called when primary succeeds")
+            },
+            |s| format!("error: {}", s),
+        )
+        .await;
+        assert_eq!(result, Ok(600.0));
+    }
+
+    #[tokio::test]
+    async fn test_tw_primary_fails_secondary_called_and_succeeds() {
+        let result = get_price_with_fetchers(
+            "2330",
+            async |_s| -> Result<f64, String> { Err("twse unavailable".into()) },
+            async |_s| Ok::<f64, String>(610.0),
+            |s| format!("error: {}", s),
+        )
+        .await;
+        assert_eq!(result, Ok(610.0));
+    }
+
+    #[tokio::test]
+    async fn test_tw_both_sources_fail_returns_err() {
+        let result = get_price_with_fetchers(
+            "2330",
+            async |_s| -> Result<f64, String> { Err("twse unavailable".into()) },
+            async |_s| -> Result<f64, String> { Err("yahoo unavailable".into()) },
+            |s| format!("Failed to get Taiwan stock price for {}", s),
+        )
+        .await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("2330"));
     }
 }
