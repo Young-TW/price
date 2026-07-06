@@ -426,7 +426,7 @@ async fn snapshot_recorder(
 ///
 /// USD is the base currency (`USD/USD` is trivially 1.0 and has no Pyth feed),
 /// so it is never included.
-fn required_forex_pairs(portfolio: &Portfolio, target_forex: &str) -> Vec<String> {
+pub(crate) fn required_forex_pairs(portfolio: &Portfolio, target_forex: &str) -> Vec<String> {
     let mut currencies: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
 
     for item in portfolio.iter() {
@@ -561,7 +561,7 @@ async fn run_display_loop<B: ratatui::backend::Backend>(
     }
 }
 
-fn build_portfolio_display(
+pub(crate) fn build_portfolio_display(
     map: &HashMap<String, f64>,
     portfolio: &Portfolio,
 ) -> (Vec<String>, f64) {

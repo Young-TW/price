@@ -13,6 +13,7 @@ This is a program that calculates the price of all your stocks/ETFs/cryptos in y
 - Support for Taiwan, US stocks/ETFs and cryptocurrencies
 - Hot-reload of `config/` — edit `portfolio.toml` or `target_forex.toml` while
   the program is running and changes are picked up automatically (no restart)
+- One-shot mode (`--once` / `--json`) for scripts, cron jobs and status bars
 
 ## Usage
 
@@ -22,6 +23,29 @@ The program watches the `config/` files while running: changing quantities,
 adding or removing holdings, or switching the target currency takes effect
 within a couple of seconds. Newly added holdings start streaming live prices
 automatically; only the one-year historical back-fill still requires a restart.
+
+### One-shot mode
+
+By default `price` runs the interactive TUI. Two flags make it usable from
+scripts instead:
+
+```sh
+price --once   # fetch prices once, print the portfolio breakdown, exit
+price --json   # same, but print one machine-readable JSON object
+```
+
+`--json` emits a single JSON object on stdout, e.g. for a status bar:
+
+```sh
+price --json | jq .total_value_usd
+```
+
+The object contains `total_value_usd`, `target_currency`, `total_value_target`
+(`null` when the display-currency rate is unavailable), `category_values_usd`,
+the raw `prices` map, a `complete` flag and any fetch `errors`. Diagnostics go
+to the log file (and, in text mode, warnings to stderr), so stdout stays
+parseable. The exit code is `0` when every holding was priced and `1` when the
+valuation is incomplete.
 
 ### File locations
 

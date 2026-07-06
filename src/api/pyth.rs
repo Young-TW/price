@@ -122,6 +122,61 @@ impl PriceContainer for HashMap<String, f64> {
     }
 }
 
+/// Extract the actual prices from a Hermes price-update payload. Both the SSE
+/// stream and the `latest` REST endpoint use the same shape:
+/// `parsed[].price.{price: "12345", expo: -2}` → `123.45`.
+fn extract_parsed_prices(json: &serde_json::Value) -> Vec<f64> {
+    let mut prices = Vec::new();
+    if let Some(parsed_array) = json.get("parsed").and_then(|v| v.as_array()) {
+        for entry in parsed_array {
+            if let Some(price_obj) = entry.get("price")
+                && let (Some(price_str), Some(expo)) = (
+                    price_obj.get("price").and_then(|p| p.as_str()),
+                    price_obj.get("expo").and_then(|e| e.as_i64()),
+                )
+                && let Ok(price_int) = price_str.parse::<f64>()
+            {
+                prices.push(price_int * 10f64.powi(expo as i32));
+            }
+        }
+    }
+    prices
+}
+
+/// Fetch the most recent price for a feed id from the Hermes REST endpoint.
+///
+/// One-shot counterpart of the SSE stream: used by `--once` mode, where Crypto
+/// and Forex prices are needed exactly once and opening a stream would be
+/// wasteful.
+pub async fn get_latest_price_from_pyth(id: &str) -> Result<f64, String> {
+    let url = format!("{}/v2/updates/price/latest?ids[]={}", BASE_URL, id);
+
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let response = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("[Pyth] Failed to query latest price for {}: {}", id, e))?;
+
+    if !response.status().is_success() {
+        return Err(format!("[Pyth] HTTP error: {}", response.status()));
+    }
+
+    let json: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("[Pyth] JSON format error: {}", e))?;
+
+    extract_parsed_prices(&json)
+        .into_iter()
+        .next()
+        .ok_or_else(|| format!("[Pyth] No price in latest response for {}", id))
+}
+
 /// 訂閱 Pyth 即時價格串流，並將價格回傳給 callback 函數。
 ///
 /// # 參數
@@ -148,20 +203,8 @@ where
         match event {
             Ok(SSE::Event(ev)) => {
                 if let Ok(json) = serde_json::from_str::<serde_json::Value>(&ev.data) {
-                    if let Some(parsed_array) = json.get("parsed").and_then(|v| v.as_array()) {
-                        for entry in parsed_array {
-                            if let Some(price_obj) = entry.get("price") {
-                                if let (Some(price_str), Some(expo)) = (
-                                    price_obj.get("price").and_then(|p| p.as_str()),
-                                    price_obj.get("expo").and_then(|e| e.as_i64()),
-                                ) {
-                                    if let Ok(price_int) = price_str.parse::<f64>() {
-                                        let actual_price = price_int * 10f64.powi(expo as i32);
-                                        on_price(actual_price);
-                                    }
-                                }
-                            }
-                        }
+                    for price in extract_parsed_prices(&json) {
+                        on_price(price);
                     }
                 }
             }
@@ -212,6 +255,35 @@ mod tests {
         );
         assert_eq!(pyth_tv_symbol("TWD", "Forex").unwrap(), "FX.USD/TWD");
         assert!(pyth_tv_symbol("2330", "TW-Stock").is_none());
+    }
+
+    #[test]
+    fn test_extract_parsed_prices() {
+        let json: serde_json::Value = serde_json::json!({
+            "parsed": [
+                { "price": { "price": "6812345678", "expo": -8 } },
+                { "price": { "price": "12345", "expo": -2 } },
+            ]
+        });
+        let prices = extract_parsed_prices(&json);
+        assert_eq!(prices.len(), 2);
+        assert!((prices[0] - 68.12345678).abs() < 1e-9);
+        assert!((prices[1] - 123.45).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_extract_parsed_prices_malformed() {
+        // Missing "parsed", non-array, non-string price and missing expo must
+        // all yield no prices rather than panicking.
+        for raw in [
+            serde_json::json!({}),
+            serde_json::json!({ "parsed": 42 }),
+            serde_json::json!({ "parsed": [ { "price": { "price": 123, "expo": -2 } } ] }),
+            serde_json::json!({ "parsed": [ { "price": { "price": "123" } } ] }),
+            serde_json::json!({ "parsed": [ { "price": { "price": "not-a-number", "expo": -2 } } ] }),
+        ] {
+            assert!(extract_parsed_prices(&raw).is_empty(), "for {raw}");
+        }
     }
 
     #[tokio::test]

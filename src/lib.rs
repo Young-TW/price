@@ -10,6 +10,7 @@ pub mod config;
 pub mod get;
 pub mod history;
 pub mod logging;
+pub mod oneshot;
 pub mod paths;
 pub mod stream;
 pub mod tui;
